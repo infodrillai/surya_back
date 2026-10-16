@@ -1,0 +1,77 @@
+{
+ "doctype": "DocType",
+ "name": "BOM",
+ "module": "Clssurya",
+ "engine": "InnoDB",
+ "custom": 0,
+ "istable": 0,
+ "issingle": 0,
+ "editable_grid": 0,
+ "track_changes": 0,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "fields": [
+  {
+   "fieldname": "product",
+   "fieldtype": "Link",
+   "label": "Product",
+   "options": "Product",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "total_steps",
+   "fieldtype": "Int",
+   "label": "Total Steps",
+   "read_only": 1,
+   "fetch_from": "product.total_steps"
+  },
+  {
+   "fieldname": "stage1_items",
+   "fieldtype": "Table",
+   "label": "Stage 1 Items",
+   "options": "BOM Stage 1 Item"
+  },
+  {
+   "fieldname": "stage2_items",
+   "fieldtype": "Table",
+   "label": "Stage 2 Items",
+   "options": "BOM Stage 2 Item"
+  },
+  {
+   "fieldname": "stage3_charges",
+   "fieldtype": "Table",
+   "label": "Stage 3 Charges",
+   "options": "BOM Stage 3 Charge"
+  }
+ ],
+ "field_order": [
+  "product",
+  "total_steps",
+  "stage1_items",
+  "stage2_items",
+  "stage3_charges"
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  },
+  {
+   "role": "CS Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  },
+  {
+   "role": "CS Production",
+   "read": 1
+  }
+ ],
+ "autoname": "field:product"
+}

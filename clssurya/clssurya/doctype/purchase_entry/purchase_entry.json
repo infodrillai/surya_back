@@ -1,0 +1,138 @@
+{
+ "doctype": "DocType",
+ "name": "Purchase Entry",
+ "module": "Clssurya",
+ "engine": "InnoDB",
+ "custom": 0,
+ "istable": 0,
+ "issingle": 0,
+ "editable_grid": 0,
+ "track_changes": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "fields": [
+  {
+   "fieldname": "vendor",
+   "fieldtype": "Link",
+   "label": "Vendor",
+   "options": "Vendor",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "label": "Posting Date",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "bill_no",
+   "fieldtype": "Data",
+   "label": "Bill No",
+   "reqd": 1
+  },
+  {
+   "fieldname": "vendor_state",
+   "fieldtype": "Data",
+   "label": "Vendor State",
+   "read_only": 1
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "label": "Items",
+   "options": "Purchase Entry Item"
+  },
+  {
+   "fieldname": "taxable_amount",
+   "fieldtype": "Currency",
+   "label": "Taxable Amount",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "tax_amount",
+   "fieldtype": "Currency",
+   "label": "Tax Amount",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "extra_charges",
+   "fieldtype": "Currency",
+   "label": "Extra Charges",
+   "precision": "9"
+  },
+  {
+   "fieldname": "grand_total",
+   "fieldtype": "Currency",
+   "label": "Grand Total",
+   "precision": "9",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "is_completed",
+   "fieldtype": "Check",
+   "label": "Is Completed",
+   "read_only": 1,
+   "default": 0,
+   "in_list_view": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "completed_on",
+   "fieldtype": "Datetime",
+   "label": "Completed On",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "completed_by",
+   "fieldtype": "Link",
+   "label": "Completed By",
+   "options": "User",
+   "read_only": 1,
+   "no_copy": 1
+  }
+ ],
+ "field_order": [
+  "vendor",
+  "posting_date",
+  "bill_no",
+  "vendor_state",
+  "items",
+  "taxable_amount",
+  "tax_amount",
+  "extra_charges",
+  "grand_total",
+  "is_completed",
+  "completed_on",
+  "completed_by"
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  },
+  {
+   "role": "CS Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  },
+  {
+   "role": "CS Store",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  }
+ ],
+ "autoname": "format:PUR-{#####}"
+}

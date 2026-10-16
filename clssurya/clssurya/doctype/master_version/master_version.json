@@ -1,0 +1,31 @@
+{
+ "doctype": "DocType",
+ "name": "Master Version",
+ "module": "Clssurya",
+ "engine": "InnoDB",
+ "custom": 0,
+ "istable": 0,
+ "issingle": 1,
+ "editable_grid": 0,
+ "track_changes": 0,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "fields": [
+  {
+   "fieldname": "versions",
+   "fieldtype": "Code",
+   "label": "Versions",
+   "options": "JSON"
+  }
+ ],
+ "field_order": [
+  "versions"
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1
+  }
+ ]
+}

@@ -1,0 +1,64 @@
+{
+ "doctype": "DocType",
+ "name": "Dispatch Item",
+ "module": "Clssurya",
+ "engine": "InnoDB",
+ "custom": 0,
+ "istable": 1,
+ "issingle": 0,
+ "editable_grid": 1,
+ "track_changes": 0,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "fields": [
+  {
+   "fieldname": "order_item",
+   "fieldtype": "Data",
+   "label": "Order Item"
+  },
+  {
+   "fieldname": "product",
+   "fieldtype": "Link",
+   "label": "Product",
+   "options": "Product",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "ordered_qty",
+   "fieldtype": "Float",
+   "label": "Ordered Qty",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "already_dispatched",
+   "fieldtype": "Float",
+   "label": "Already Dispatched",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "quantity",
+   "fieldtype": "Float",
+   "label": "Quantity",
+   "precision": "9",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "unit_cost",
+   "fieldtype": "Currency",
+   "label": "Unit Cost",
+   "precision": "9",
+   "read_only": 1
+  }
+ ],
+ "field_order": [
+  "order_item",
+  "product",
+  "ordered_qty",
+  "already_dispatched",
+  "quantity",
+  "unit_cost"
+ ],
+ "permissions": []
+}

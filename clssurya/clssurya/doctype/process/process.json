@@ -1,0 +1,51 @@
+{
+ "doctype": "DocType",
+ "name": "Process",
+ "module": "Clssurya",
+ "engine": "InnoDB",
+ "custom": 0,
+ "istable": 0,
+ "issingle": 0,
+ "editable_grid": 0,
+ "track_changes": 0,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "fields": [
+  {
+   "fieldname": "process_name",
+   "fieldtype": "Data",
+   "label": "Process Name",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1
+  }
+ ],
+ "field_order": [
+  "process_name"
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  },
+  {
+   "role": "CS Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  },
+  {
+   "role": "CS Store",
+   "read": 1
+  },
+  {
+   "role": "CS Production",
+   "read": 1
+  }
+ ],
+ "autoname": "field:process_name"
+}

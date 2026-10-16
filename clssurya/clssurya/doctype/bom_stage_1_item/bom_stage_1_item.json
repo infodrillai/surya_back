@@ -1,0 +1,49 @@
+{
+ "doctype": "DocType",
+ "name": "BOM Stage 1 Item",
+ "module": "Clssurya",
+ "engine": "InnoDB",
+ "custom": 0,
+ "istable": 1,
+ "issingle": 0,
+ "editable_grid": 1,
+ "track_changes": 0,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "fields": [
+  {
+   "fieldname": "process",
+   "fieldtype": "Link",
+   "label": "Process",
+   "options": "Process"
+  },
+  {
+   "fieldname": "product",
+   "fieldtype": "Link",
+   "label": "Product",
+   "options": "Product",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "per_unit_utilization",
+   "fieldtype": "Float",
+   "label": "Per Unit Utilization",
+   "precision": "9",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "wastage_product",
+   "fieldtype": "Link",
+   "label": "Wastage Product",
+   "options": "Product"
+  }
+ ],
+ "field_order": [
+  "process",
+  "product",
+  "per_unit_utilization",
+  "wastage_product"
+ ],
+ "permissions": []
+}

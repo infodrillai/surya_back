@@ -1,0 +1,173 @@
+{
+ "doctype": "DocType",
+ "name": "Stage 1 Batch",
+ "module": "Clssurya",
+ "engine": "InnoDB",
+ "custom": 0,
+ "istable": 0,
+ "issingle": 0,
+ "editable_grid": 0,
+ "track_changes": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "fields": [
+  {
+   "fieldname": "product",
+   "fieldtype": "Link",
+   "label": "Product",
+   "options": "Product",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "quantity",
+   "fieldtype": "Float",
+   "label": "Quantity",
+   "precision": "9",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "label": "Posting Date"
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "label": "Items",
+   "options": "Stage 1 Batch Item"
+  },
+  {
+   "fieldname": "weight_per_piece",
+   "fieldtype": "Float",
+   "label": "Weight Per Piece",
+   "precision": "9"
+  },
+  {
+   "fieldname": "wastage_product",
+   "fieldtype": "Link",
+   "label": "Wastage Product",
+   "options": "Product"
+  },
+  {
+   "fieldname": "wastage_qty",
+   "fieldtype": "Float",
+   "label": "Wastage Qty",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "carried_cost",
+   "fieldtype": "Currency",
+   "label": "Carried Cost",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "added_cost",
+   "fieldtype": "Currency",
+   "label": "Added Cost",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rejection_percent",
+   "fieldtype": "Percent",
+   "label": "Rejection Percent",
+   "precision": "9"
+  },
+  {
+   "fieldname": "rejection_amount",
+   "fieldtype": "Currency",
+   "label": "Rejection Amount",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "batch_total",
+   "fieldtype": "Currency",
+   "label": "Batch Total",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "unit_cost",
+   "fieldtype": "Currency",
+   "label": "Unit Cost",
+   "precision": "9",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "is_completed",
+   "fieldtype": "Check",
+   "label": "Is Completed",
+   "read_only": 1,
+   "default": 0,
+   "in_list_view": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "completed_on",
+   "fieldtype": "Datetime",
+   "label": "Completed On",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "completed_by",
+   "fieldtype": "Link",
+   "label": "Completed By",
+   "options": "User",
+   "read_only": 1,
+   "no_copy": 1
+  }
+ ],
+ "field_order": [
+  "product",
+  "quantity",
+  "posting_date",
+  "items",
+  "weight_per_piece",
+  "wastage_product",
+  "wastage_qty",
+  "carried_cost",
+  "added_cost",
+  "rejection_percent",
+  "rejection_amount",
+  "batch_total",
+  "unit_cost",
+  "is_completed",
+  "completed_on",
+  "completed_by"
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  },
+  {
+   "role": "CS Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  },
+  {
+   "role": "CS Production",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  },
+  {
+   "role": "CS Store",
+   "read": 1
+  }
+ ],
+ "autoname": "format:S1B-{#####}"
+}

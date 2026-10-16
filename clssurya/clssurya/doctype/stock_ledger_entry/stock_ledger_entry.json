@@ -1,0 +1,112 @@
+{
+ "doctype": "DocType",
+ "name": "Stock Ledger Entry",
+ "module": "Clssurya",
+ "engine": "InnoDB",
+ "custom": 0,
+ "istable": 0,
+ "issingle": 0,
+ "editable_grid": 0,
+ "track_changes": 0,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "fields": [
+  {
+   "fieldname": "product",
+   "fieldtype": "Link",
+   "label": "Product",
+   "options": "Product",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "stage",
+   "fieldtype": "Select",
+   "label": "Stage",
+   "options": "Raw\nStage 1\nStage 2\nStage 3\nFinished",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "posting_datetime",
+   "fieldtype": "Datetime",
+   "label": "Posting Datetime"
+  },
+  {
+   "fieldname": "qty_in",
+   "fieldtype": "Float",
+   "label": "Qty In",
+   "precision": "9"
+  },
+  {
+   "fieldname": "qty_out",
+   "fieldtype": "Float",
+   "label": "Qty Out",
+   "precision": "9"
+  },
+  {
+   "fieldname": "unit_price",
+   "fieldtype": "Currency",
+   "label": "Unit Price",
+   "precision": "9"
+  },
+  {
+   "fieldname": "value",
+   "fieldtype": "Currency",
+   "label": "Value",
+   "precision": "9"
+  },
+  {
+   "fieldname": "reference_doctype",
+   "fieldtype": "Link",
+   "label": "Reference Doctype",
+   "options": "DocType"
+  },
+  {
+   "fieldname": "reference_name",
+   "fieldtype": "Dynamic Link",
+   "label": "Reference Name",
+   "options": "reference_doctype"
+  },
+  {
+   "fieldname": "is_reversal",
+   "fieldtype": "Check",
+   "label": "Is Reversal"
+  },
+  {
+   "fieldname": "is_reversed",
+   "fieldtype": "Check",
+   "label": "Is Reversed"
+  }
+ ],
+ "field_order": [
+  "product",
+  "stage",
+  "posting_datetime",
+  "qty_in",
+  "qty_out",
+  "unit_price",
+  "value",
+  "reference_doctype",
+  "reference_name",
+  "is_reversal",
+  "is_reversed"
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1
+  },
+  {
+   "role": "CS Admin",
+   "read": 1
+  },
+  {
+   "role": "CS Store",
+   "read": 1
+  },
+  {
+   "role": "CS Production",
+   "read": 1
+  }
+ ],
+ "autoname": "hash"
+}

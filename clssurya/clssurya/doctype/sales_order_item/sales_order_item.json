@@ -1,0 +1,75 @@
+{
+ "doctype": "DocType",
+ "name": "Sales Order Item",
+ "module": "Clssurya",
+ "engine": "InnoDB",
+ "custom": 0,
+ "istable": 1,
+ "issingle": 0,
+ "editable_grid": 1,
+ "track_changes": 0,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "fields": [
+  {
+   "fieldname": "product",
+   "fieldtype": "Link",
+   "label": "Product",
+   "options": "Product",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "quantity",
+   "fieldtype": "Float",
+   "label": "Quantity",
+   "precision": "9",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "uom",
+   "fieldtype": "Link",
+   "label": "Uom",
+   "options": "UOM",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rate",
+   "fieldtype": "Currency",
+   "label": "Rate",
+   "precision": "9",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "label": "Amount",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "dispatched_qty",
+   "fieldtype": "Float",
+   "label": "Dispatched Qty",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pending_qty",
+   "fieldtype": "Float",
+   "label": "Pending Qty",
+   "precision": "9",
+   "read_only": 1
+  }
+ ],
+ "field_order": [
+  "product",
+  "quantity",
+  "uom",
+  "rate",
+  "amount",
+  "dispatched_qty",
+  "pending_qty"
+ ],
+ "permissions": []
+}

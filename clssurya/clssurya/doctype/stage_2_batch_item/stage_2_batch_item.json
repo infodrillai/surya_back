@@ -1,0 +1,95 @@
+{
+ "doctype": "DocType",
+ "name": "Stage 2 Batch Item",
+ "module": "Clssurya",
+ "engine": "InnoDB",
+ "custom": 0,
+ "istable": 1,
+ "issingle": 0,
+ "editable_grid": 1,
+ "track_changes": 0,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "fields": [
+  {
+   "fieldname": "is_carried_in",
+   "fieldtype": "Check",
+   "label": "Is Carried In",
+   "read_only": 1,
+   "default": 0
+  },
+  {
+   "fieldname": "process",
+   "fieldtype": "Link",
+   "label": "Process",
+   "options": "Process"
+  },
+  {
+   "fieldname": "product",
+   "fieldtype": "Link",
+   "label": "Product",
+   "options": "Product",
+   "reqd": 1
+  },
+  {
+   "fieldname": "per_unit_utilization",
+   "fieldtype": "Float",
+   "label": "Per Unit Utilization",
+   "precision": "9"
+  },
+  {
+   "fieldname": "total_utilization",
+   "fieldtype": "Float",
+   "label": "Total Utilization",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "actual_utilization",
+   "fieldtype": "Float",
+   "label": "Actual Utilization",
+   "precision": "9"
+  },
+  {
+   "fieldname": "unit_price",
+   "fieldtype": "Currency",
+   "label": "Unit Price",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "label": "Amount",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "per_unit_amount",
+   "fieldtype": "Currency",
+   "label": "Per Unit Amount",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "actual_amount",
+   "fieldtype": "Currency",
+   "label": "Actual Amount",
+   "precision": "9",
+   "read_only": 1
+  }
+ ],
+ "field_order": [
+  "is_carried_in",
+  "process",
+  "product",
+  "per_unit_utilization",
+  "total_utilization",
+  "actual_utilization",
+  "unit_price",
+  "amount",
+  "per_unit_amount",
+  "actual_amount"
+ ],
+ "permissions": []
+}
