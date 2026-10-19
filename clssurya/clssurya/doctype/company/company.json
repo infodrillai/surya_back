@@ -1,0 +1,88 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:company_name",
+ "creation": "2026-10-17 22:30:00",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "company_name",
+  "gstin",
+  "tally_company_name",
+  "phone",
+  "email",
+  "address",
+  "active"
+ ],
+ "fields": [
+  {
+   "fieldname": "company_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Company Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "gstin",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "GSTIN"
+  },
+  {
+   "fieldname": "tally_company_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Tally Company Name"
+  },
+  {
+   "fieldname": "phone",
+   "fieldtype": "Data",
+   "label": "Phone"
+  },
+  {
+   "fieldname": "email",
+   "fieldtype": "Data",
+   "label": "Email"
+  },
+  {
+   "fieldname": "address",
+   "fieldtype": "Small Text",
+   "label": "Address"
+  },
+  {
+   "default": "1",
+   "fieldname": "active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Active"
+  }
+ ],
+ "module": "Clssurya",
+ "name": "Company",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "System Manager",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "CS Admin",
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "CS Sales"
+  },
+  {
+   "read": 1,
+   "role": "CS Store"
+  }
+ ]
+}

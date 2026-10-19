@@ -1,0 +1,111 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-10-17 22:30:00",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "company_name",
+  "tally_company",
+  "closing_balance",
+  "opening_balance",
+  "balance_type",
+  "last_sync",
+  "age_0_30",
+  "age_30_60",
+  "age_60_90",
+  "age_90_120",
+  "age_120_150",
+  "age_150_180",
+  "age_180_above"
+ ],
+ "fields": [
+  {
+   "fieldname": "company_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Company Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "tally_company",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Tally Company"
+  },
+  {
+   "default": "0",
+   "fieldname": "closing_balance",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Closing Balance"
+  },
+  {
+   "default": "0",
+   "fieldname": "opening_balance",
+   "fieldtype": "Float",
+   "label": "Opening Balance"
+  },
+  {
+   "default": "Dr",
+   "fieldname": "balance_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Balance Type",
+   "options": "Dr\nCr\nZero"
+  },
+  {
+   "fieldname": "last_sync",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Last Sync"
+  },
+  {
+   "default": "0",
+   "fieldname": "age_0_30",
+   "fieldtype": "Float",
+   "label": "0-30 Days"
+  },
+  {
+   "default": "0",
+   "fieldname": "age_30_60",
+   "fieldtype": "Float",
+   "label": "30-60 Days"
+  },
+  {
+   "default": "0",
+   "fieldname": "age_60_90",
+   "fieldtype": "Float",
+   "label": "60-90 Days"
+  },
+  {
+   "default": "0",
+   "fieldname": "age_90_120",
+   "fieldtype": "Float",
+   "label": "90-120 Days"
+  },
+  {
+   "default": "0",
+   "fieldname": "age_120_150",
+   "fieldtype": "Float",
+   "label": "120-150 Days"
+  },
+  {
+   "default": "0",
+   "fieldname": "age_150_180",
+   "fieldtype": "Float",
+   "label": "150-180 Days"
+  },
+  {
+   "default": "0",
+   "fieldname": "age_180_above",
+   "fieldtype": "Float",
+   "label": "180+ Days"
+  }
+ ],
+ "istable": 1,
+ "module": "Clssurya",
+ "name": "Customer Company Outstanding",
+ "permissions": []
+}

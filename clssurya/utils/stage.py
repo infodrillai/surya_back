@@ -15,112 +15,78 @@ class StageBatch(CompletableDocument):
 
     STAGE = 1
 
-    # def calculate(self):
-    #     qty = flt(self.quantity)
-    #     if self.STAGE > 1:
-    #         self._ensure_carried_row(qty)
-    #     carried = added = used = extra_cost_total  = 0.0
-    #     for r in self.get("items"):
-    #         carried_in = cint(r.get("is_carried_in"))
-    #         r.unit_price = inventory_price(r.product, PREV_STAGE[self.STAGE] if carried_in else "Raw")
-    #         r.total_utilization = flt(r.per_unit_utilization) * qty
-    #         r.amount = r.total_utilization * r.unit_price
-    #         r.per_unit_amount = flt(r.per_unit_utilization) * r.unit_price
-    #         r.actual_amount = flt(r.actual_utilization) * r.unit_price
-    #         r.unit_cost = flt(r.actual_amount / r.actual_utilization) if r.actual_utilization else 0
+    def calculate(self):
+        qty = flt(self.quantity)
 
-    #         used += flt(r.actual_utilization)
-    #         if carried_in:
-    #             carried += r.actual_amount
-    #         else:
-    #             added += r.actual_amount
-    #     if self.STAGE == 3:
-    #         for c in self.get("charges"):
-    #             c.amount = flt(c.per_unit_price) * qty
-    #             added += c.amount
-    #     if self.STAGE == 1:
-    #         self.wastage_qty = stage1_wastage(used, qty, self.weight_per_piece)
-    #         if not self.wastage_product and self.product and frappe.db.exists("BOM", self.product):
-    #             for r in frappe.get_doc("BOM", self.product).stage1_items:
-    #                 if r.wastage_product:
-    #                     self.wastage_product = r.wastage_product
-    #                     break
-    #     t = stage_totals(carried, added, flt(self.rejection_percent), qty)
-    #     self.carried_cost, self.added_cost = carried, added
-    #     self.rejection_amount, self.batch_total, self.unit_cost = t["rejection_amount"], t["batch_total"], t["unit_cost"]
+        if self.STAGE > 1:
+            self._ensure_carried_row(qty)
 
-def calculate(self):
-    qty = flt(self.quantity)
+        carried = 0.0
+        added = 0.0
+        used = 0.0
+        extra_cost_total = 0.0
 
-    if self.STAGE > 1:
-        self._ensure_carried_row(qty)
+        for r in self.get("items"):
+            carried_in = cint(r.get("is_carried_in"))
 
-    carried = 0.0
-    added = 0.0
-    used = 0.0
-    extra_cost_total = 0.0
+            r.unit_price = inventory_price(
+                r.product,
+                PREV_STAGE[self.STAGE] if carried_in else "Raw"
+            )
 
-    for r in self.get("items"):
-        carried_in = cint(r.get("is_carried_in"))
+            r.total_utilization = flt(r.per_unit_utilization) * qty
+            r.amount = r.total_utilization * r.unit_price
+            r.per_unit_amount = flt(r.per_unit_utilization) * r.unit_price
+            r.actual_amount = flt(r.actual_utilization) * r.unit_price
 
-        r.unit_price = inventory_price(
-            r.product,
-            PREV_STAGE[self.STAGE] if carried_in else "Raw"
+            # Avoid division by zero
+            actual_qty = flt(r.actual_utilization)
+            r.unit_cost = flt(r.actual_amount / actual_qty) if actual_qty else 0
+
+            used += actual_qty
+
+            if carried_in:
+                carried += r.actual_amount
+            else:
+                added += r.actual_amount
+
+            # Extra Cost / pc × batch output quantity
+            row_extra_cost = flt(r.get("extra_cost")) * qty
+            extra_cost_total += row_extra_cost
+            added += row_extra_cost
+
+        if self.STAGE == 3:
+            for c in self.get("charges"):
+                c.amount = flt(c.per_unit_price) * qty
+                added += c.amount
+
+        if self.STAGE == 1:
+            self.wastage_qty = stage1_wastage(
+                used, qty, self.weight_per_piece
+            )
+
+            if (
+                not self.wastage_product
+                and self.product
+                and frappe.db.exists("BOM", self.product)
+            ):
+                for r in frappe.get_doc("BOM", self.product).stage1_items:
+                    if r.wastage_product:
+                        self.wastage_product = r.wastage_product
+                        break
+
+        t = stage_totals(
+            carried,
+            added,
+            flt(self.rejection_percent),
+            qty
         )
 
-        r.total_utilization = flt(r.per_unit_utilization) * qty
-        r.amount = r.total_utilization * r.unit_price
-        r.per_unit_amount = flt(r.per_unit_utilization) * r.unit_price
-        r.actual_amount = flt(r.actual_utilization) * r.unit_price
-
-        # Avoid division by zero
-        actual_qty = flt(r.actual_utilization)
-        r.unit_cost = flt(r.actual_amount / actual_qty) if actual_qty else 0
-
-        used += actual_qty
-
-        if carried_in:
-            carried += r.actual_amount
-        else:
-            added += r.actual_amount
-
-        # Extra Cost / pc × batch output quantity
-        row_extra_cost = flt(r.get("extra_cost")) * qty
-        extra_cost_total += row_extra_cost
-        added += row_extra_cost
-
-    if self.STAGE == 3:
-        for c in self.get("charges"):
-            c.amount = flt(c.per_unit_price) * qty
-            added += c.amount
-
-    if self.STAGE == 1:
-        self.wastage_qty = stage1_wastage(
-            used, qty, self.weight_per_piece
-        )
-
-        if (
-            not self.wastage_product
-            and self.product
-            and frappe.db.exists("BOM", self.product)
-        ):
-            for r in frappe.get_doc("BOM", self.product).stage1_items:
-                if r.wastage_product:
-                    self.wastage_product = r.wastage_product
-                    break
-
-    t = stage_totals(
-        carried,
-        added,
-        flt(self.rejection_percent),
-        qty
-    )
-
-    self.carried_cost = carried
-    self.added_cost = added
-    self.rejection_amount = t["rejection_amount"]
-    self.batch_total = t["batch_total"]
-    self.unit_cost = t["unit_cost"]
+        self.carried_cost = carried
+        self.added_cost = added
+        self.rejection_amount = t["rejection_amount"]
+        self.batch_total = t["batch_total"]
+        self.unit_cost = t["unit_cost"]
 
     def _ensure_carried_row(self, qty):
         rows = [r for r in self.get("items") if cint(r.get("is_carried_in"))]

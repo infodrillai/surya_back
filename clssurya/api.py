@@ -114,3 +114,379 @@ def run_action(doctype, name, action):
     doc.check_permission("write")
     result = getattr(doc, action)()
     return {"name": name, "result": result}
+
+
+@frappe.whitelist()
+def test_tally_connection(tally_url="http://localhost:9000"):
+    """Tests connectivity to Tally server and lists open companies."""
+    from clssurya.utils.tally_sync import fetch_open_companies_from_tally, normalize_url
+    url = normalize_url(tally_url)
+    try:
+        companies = fetch_open_companies_from_tally(url, timeout=7)
+        return {
+            "success": True,
+            "url": url,
+            "message": f"Connected to Tally! Found {len(companies)} open company(s)." if companies else "Connected to Tally server!",
+            "companies": companies,
+        }
+    except Exception as e:
+        msg = str(e)
+        if "Connection refused" in msg or "Max retries exceeded" in msg:
+            hint = f"Connection refused at {url}. Ensure Tally is running with ODBC / HTTP Server enabled in F12 > Advanced Configuration."
+        elif "timed out" in msg:
+            hint = f"Connection to {url} timed out. Verify network connectivity."
+        else:
+            hint = msg
+        return {
+            "success": False,
+            "url": url,
+            "message": f"Failed to connect to Tally: {hint}",
+            "companies": [],
+        }
+
+
+@frappe.whitelist()
+def fetch_tally_companies(tally_url="http://localhost:9000"):
+    """Returns list of open companies in Tally."""
+    from clssurya.utils.tally_sync import fetch_open_companies_from_tally
+    try:
+        companies = fetch_open_companies_from_tally(tally_url)
+        return {"success": True, "companies": companies}
+    except Exception as e:
+        return {"success": False, "message": str(e), "companies": []}
+
+
+@frappe.whitelist(methods=["POST"])
+def sync_from_tally(tally_url="http://localhost:9000", company=None, group="Sundry Debtors"):
+    """Fetches ledgers and bill ageing directly from Tally HTTP server and synchronizes into Frappe."""
+    from clssurya.utils.tally_sync import (
+        fetch_open_companies_from_tally,
+        fetch_ledgers_from_tally,
+        sync_customer_records,
+    )
+    url = tally_url.strip() if tally_url else "http://localhost:9000"
+
+    if company and str(company).strip() and str(company).strip() != "__ALL__":
+        target_companies = [str(company).strip()]
+    else:
+        try:
+            target_companies = fetch_open_companies_from_tally(url)
+        except Exception as e:
+            frappe.throw(_("Could not fetch company list from Tally: {0}").format(str(e)))
+        if not target_companies:
+            target_companies = ["Main Company"]
+
+    all_raw_customers = []
+    errors = []
+
+    for comp in target_companies:
+        try:
+            ledgers = fetch_ledgers_from_tally(url, company_name=comp, group_name=group or "Sundry Debtors")
+            all_raw_customers.extend(ledgers)
+        except Exception as e:
+            errors.append(f"Company '{comp}': {str(e)}")
+
+    if not all_raw_customers and errors:
+        frappe.throw(_("Failed fetching from Tally: {0}").format("; ".join(errors)))
+
+    sync_result = sync_customer_records(all_raw_customers, default_company=target_companies[0] if target_companies else None)
+    if errors:
+        sync_result["warnings"] = errors
+
+    return sync_result
+
+
+@frappe.whitelist(methods=["POST"])
+def sync_customer_outstanding(customers=None, company=None):
+    """Whitelisted endpoint accepting JSON customer payload to sync multi-company outstandings and ageing."""
+    from clssurya.utils.tally_sync import sync_customer_records
+
+    raw = customers
+    if isinstance(raw, str):
+        try:
+            raw = frappe.parse_json(raw)
+        except Exception:
+            raw = []
+    elif raw is None and frappe.request and frappe.request.data:
+        try:
+            data = frappe.parse_json(frappe.request.data.decode("utf-8"))
+            raw = data.get("customers") or data
+        except Exception:
+            raw = []
+
+    if isinstance(raw, dict):
+        raw = [raw]
+
+    return sync_customer_records(raw or [], default_company=company)
+
+
+@frappe.whitelist()
+def get_customer_outstandings_dashboard(company=None, search=None):
+    """
+    Returns complete dashboard data for Customer Outstanding:
+    - Customer list with company-wise outstandings and ageing
+    - Aggregated KPIs: Total Receivables (Dr), Total Payables (Cr), Net Outstanding
+    - Company breakdown summary
+    - Overall ageing summary
+    """
+    customers_raw = frappe.get_all(
+        "Customer",
+        fields=[
+            "name", "customer_name", "gstin", "pan",
+            "phone", "mobile", "email", "city", "state", "address",
+            "total_outstanding", "balance_type", "active", "creation", "modified", "last_sync",
+            "age_0_30", "age_30_60", "age_60_90", "age_90_120",
+            "age_120_150", "age_150_180", "age_180_above"
+        ],
+        order_by="total_outstanding desc, customer_name asc"
+    )
+
+    outstandings_raw = frappe.db.sql(
+        """SELECT name, parent, company_name, tally_company,
+                  closing_balance, opening_balance, balance_type, last_sync,
+                  age_0_30, age_30_60, age_60_90, age_90_120,
+                  age_120_150, age_150_180, age_180_above
+           FROM `tabCustomer Company Outstanding`
+           WHERE parenttype = 'Customer'
+           ORDER BY closing_balance DESC""",
+        as_dict=True
+    )
+
+    comp_map = {}
+    all_detected_companies = set()
+
+    for row in outstandings_raw:
+        p = str(row["parent"])
+        if p not in comp_map:
+            comp_map[p] = []
+        c_name = row["company_name"]
+        if c_name:
+            all_detected_companies.add(c_name)
+
+        comp_map[p].append({
+            "name": row["name"],
+            "company_name": c_name,
+            "tally_company": row["tally_company"] or c_name,
+            "closing_balance": flt(row["closing_balance"]),
+            "opening_balance": flt(row["opening_balance"]),
+            "balance_type": row["balance_type"] or "Dr",
+            "last_sync": row["last_sync"],
+            "age_0_30": flt(row.get("age_0_30", 0.0)),
+            "age_30_60": flt(row.get("age_30_60", 0.0)),
+            "age_60_90": flt(row.get("age_60_90", 0.0)),
+            "age_90_120": flt(row.get("age_90_120", 0.0)),
+            "age_120_150": flt(row.get("age_120_150", 0.0)),
+            "age_150_180": flt(row.get("age_150_180", 0.0)),
+            "age_180_above": flt(row.get("age_180_above", 0.0)),
+        })
+
+    try:
+        registered_companies = frappe.get_all("Company", pluck="name")
+        for rc in registered_companies:
+            all_detected_companies.add(rc)
+    except Exception:
+        pass
+
+    companies_stats = {
+        c: {
+            "receivables": 0.0,
+            "payables": 0.0,
+            "count": 0,
+            "age_0_30": 0.0,
+            "age_30_60": 0.0,
+            "age_60_90": 0.0,
+            "age_90_120": 0.0,
+            "age_120_150": 0.0,
+            "age_150_180": 0.0,
+            "age_180_above": 0.0,
+        }
+        for c in all_detected_companies
+    }
+
+    selected_comp = company.strip() if company and company != "__ALL__" else None
+    search_term = search.lower().strip() if search else None
+
+    customer_list = []
+    total_receivables = 0.0
+    total_payables = 0.0
+    gst_registered_count = 0
+
+    total_age = {
+        "age_0_30": 0.0,
+        "age_30_60": 0.0,
+        "age_60_90": 0.0,
+        "age_90_120": 0.0,
+        "age_120_150": 0.0,
+        "age_150_180": 0.0,
+        "age_180_above": 0.0,
+    }
+
+    for cust in customers_raw:
+        c_id = str(cust["name"])
+        rows = comp_map.get(c_id, [])
+
+        if selected_comp:
+            out_rows_to_use = [r for r in rows if r["company_name"] == selected_comp]
+            if not out_rows_to_use:
+                continue
+        else:
+            out_rows_to_use = rows
+
+        if search_term:
+            match_name = search_term in (cust.get("customer_name") or "").lower()
+            match_gst = search_term in (cust.get("gstin") or "").lower()
+            match_phone = search_term in (cust.get("phone") or "").lower() or search_term in (cust.get("mobile") or "").lower()
+            match_city = search_term in (cust.get("city") or "").lower()
+            if not (match_name or match_gst or match_phone or match_city):
+                continue
+
+        if cust.get("gstin"):
+            gst_registered_count += 1
+
+        cust_dr = 0.0
+        cust_cr = 0.0
+        c_age_0_30 = 0.0
+        c_age_30_60 = 0.0
+        c_age_60_90 = 0.0
+        c_age_90_120 = 0.0
+        c_age_120_150 = 0.0
+        c_age_150_180 = 0.0
+        c_age_180_above = 0.0
+
+        for r in out_rows_to_use:
+            c_name = r["company_name"]
+            bal = flt(r["closing_balance"])
+            if c_name not in companies_stats:
+                companies_stats[c_name] = {
+                    "receivables": 0.0,
+                    "payables": 0.0,
+                    "count": 0,
+                    "age_0_30": 0.0,
+                    "age_30_60": 0.0,
+                    "age_60_90": 0.0,
+                    "age_90_120": 0.0,
+                    "age_120_150": 0.0,
+                    "age_150_180": 0.0,
+                    "age_180_above": 0.0,
+                }
+            companies_stats[c_name]["count"] += 1
+
+            r_a0 = flt(r["age_0_30"])
+            r_a30 = flt(r["age_30_60"])
+            r_a60 = flt(r["age_60_90"])
+            r_a90 = flt(r["age_90_120"])
+            r_a120 = flt(r["age_120_150"])
+            r_a150 = flt(r["age_150_180"])
+            r_a180 = flt(r["age_180_above"])
+
+            c_age_0_30 += r_a0
+            c_age_30_60 += r_a30
+            c_age_60_90 += r_a60
+            c_age_90_120 += r_a90
+            c_age_120_150 += r_a120
+            c_age_150_180 += r_a150
+            c_age_180_above += r_a180
+
+            companies_stats[c_name]["age_0_30"] += r_a0
+            companies_stats[c_name]["age_30_60"] += r_a30
+            companies_stats[c_name]["age_60_90"] += r_a60
+            companies_stats[c_name]["age_90_120"] += r_a90
+            companies_stats[c_name]["age_120_150"] += r_a120
+            companies_stats[c_name]["age_150_180"] += r_a150
+            companies_stats[c_name]["age_180_above"] += r_a180
+
+            total_age["age_0_30"] += r_a0
+            total_age["age_30_60"] += r_a30
+            total_age["age_60_90"] += r_a60
+            total_age["age_90_120"] += r_a90
+            total_age["age_120_150"] += r_a120
+            total_age["age_150_180"] += r_a150
+            total_age["age_180_above"] += r_a180
+
+            if r["balance_type"] == "Cr":
+                cust_cr += bal
+                total_payables += bal
+                companies_stats[c_name]["payables"] += bal
+            else:
+                cust_dr += bal
+                total_receivables += bal
+                companies_stats[c_name]["receivables"] += bal
+
+        if not rows:
+            bal = flt(cust["total_outstanding"])
+            if cust["balance_type"] == "Cr":
+                cust_cr = bal
+                total_payables += bal
+            else:
+                cust_dr = bal
+                total_receivables += bal
+            c_age_0_30 = flt(cust.get("age_0_30", 0.0))
+            c_age_30_60 = flt(cust.get("age_30_60", 0.0))
+            c_age_60_90 = flt(cust.get("age_60_90", 0.0))
+            c_age_90_120 = flt(cust.get("age_90_120", 0.0))
+            c_age_120_150 = flt(cust.get("age_120_150", 0.0))
+            c_age_150_180 = flt(cust.get("age_150_180", 0.0))
+            c_age_180_above = flt(cust.get("age_180_above", 0.0))
+
+            total_age["age_0_30"] += c_age_0_30
+            total_age["age_30_60"] += c_age_30_60
+            total_age["age_60_90"] += c_age_60_90
+            total_age["age_90_120"] += c_age_90_120
+            total_age["age_120_150"] += c_age_120_150
+            total_age["age_150_180"] += c_age_150_180
+            total_age["age_180_above"] += c_age_180_above
+
+        customer_list.append({
+            **cust,
+            "company_outstandings": out_rows_to_use,
+            "receivable_dr": round(cust_dr, 2),
+            "payable_cr": round(cust_cr, 2),
+            "net_balance": round(cust_dr - cust_cr, 2),
+            "age_0_30": round(c_age_0_30, 2),
+            "age_30_60": round(c_age_30_60, 2),
+            "age_60_90": round(c_age_60_90, 2),
+            "age_90_120": round(c_age_90_120, 2),
+            "age_120_150": round(c_age_120_150, 2),
+            "age_150_180": round(c_age_150_180, 2),
+            "age_180_above": round(c_age_180_above, 2),
+        })
+
+    companies_breakdown = []
+    for comp_name, stats in companies_stats.items():
+        companies_breakdown.append({
+            "company_name": comp_name,
+            "customer_count": stats["count"],
+            "receivables": round(stats["receivables"], 2),
+            "payables": round(stats["payables"], 2),
+            "net_amount": round(stats["receivables"] - stats["payables"], 2),
+            "age_0_30": round(stats["age_0_30"], 2),
+            "age_30_60": round(stats["age_30_60"], 2),
+            "age_60_90": round(stats["age_60_90"], 2),
+            "age_90_120": round(stats["age_90_120"], 2),
+            "age_120_150": round(stats["age_120_150"], 2),
+            "age_150_180": round(stats["age_150_180"], 2),
+            "age_180_above": round(stats["age_180_above"], 2),
+        })
+
+    companies_breakdown.sort(key=lambda x: x["receivables"], reverse=True)
+
+    return {
+        "customers": customer_list,
+        "total_customers": len(customer_list),
+        "total_receivables": round(total_receivables, 2),
+        "total_payables": round(total_payables, 2),
+        "net_outstanding": round(total_receivables - total_payables, 2),
+        "gst_registered_count": gst_registered_count,
+        "companies": sorted(list(all_detected_companies)),
+        "companies_breakdown": companies_breakdown,
+        "ageing_summary": {
+            "age_0_30": round(total_age["age_0_30"], 2),
+            "age_30_60": round(total_age["age_30_60"], 2),
+            "age_60_90": round(total_age["age_60_90"], 2),
+            "age_90_120": round(total_age["age_90_120"], 2),
+            "age_120_150": round(total_age["age_120_150"], 2),
+            "age_150_180": round(total_age["age_150_180"], 2),
+            "age_180_above": round(total_age["age_180_above"], 2),
+            "total": round(sum(total_age.values()), 2),
+        },
+    }

@@ -1,28 +1,76 @@
 {
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:customer_name",
+ "creation": "2026-10-14 14:51:00",
  "doctype": "DocType",
- "name": "Customer",
- "module": "Clssurya",
+ "editable_grid": 1,
  "engine": "InnoDB",
- "custom": 0,
- "istable": 0,
- "issingle": 0,
- "editable_grid": 0,
- "track_changes": 0,
- "sort_field": "modified",
- "sort_order": "DESC",
+ "field_order": [
+  "customer_name",
+  "gstin",
+  "pan",
+  "phone",
+  "mobile",
+  "email",
+  "city",
+  "state",
+  "address",
+  "total_outstanding",
+  "balance_type",
+  "last_sync",
+  "age_0_30",
+  "age_30_60",
+  "age_60_90",
+  "age_90_120",
+  "age_120_150",
+  "age_150_180",
+  "age_180_above",
+  "company_outstandings",
+  "active"
+ ],
  "fields": [
   {
    "fieldname": "customer_name",
    "fieldtype": "Data",
+   "in_list_view": 1,
    "label": "Customer Name",
    "reqd": 1,
-   "unique": 1,
-   "in_list_view": 1
+   "unique": 1
   },
   {
    "fieldname": "gstin",
    "fieldtype": "Data",
+   "in_list_view": 1,
    "label": "GSTIN"
+  },
+  {
+   "fieldname": "pan",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "PAN"
+  },
+  {
+   "fieldname": "phone",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Phone"
+  },
+  {
+   "fieldname": "mobile",
+   "fieldtype": "Data",
+   "label": "Mobile"
+  },
+  {
+   "fieldname": "email",
+   "fieldtype": "Data",
+   "label": "Email"
+  },
+  {
+   "fieldname": "city",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "City"
   },
   {
    "fieldname": "state",
@@ -30,49 +78,115 @@
    "label": "State"
   },
   {
-   "fieldname": "phone",
-   "fieldtype": "Data",
-   "label": "Phone"
-  },
-  {
    "fieldname": "address",
    "fieldtype": "Small Text",
    "label": "Address"
+  },
+  {
+   "default": "0",
+   "fieldname": "total_outstanding",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Total Outstanding"
+  },
+  {
+   "default": "Dr",
+   "fieldname": "balance_type",
+   "fieldtype": "Select",
+   "label": "Balance Type",
+   "options": "Dr\nCr\nZero"
+  },
+  {
+   "fieldname": "last_sync",
+   "fieldtype": "Datetime",
+   "label": "Last Sync"
+  },
+  {
+   "default": "0",
+   "fieldname": "age_0_30",
+   "fieldtype": "Float",
+   "label": "0-30 Days"
+  },
+  {
+   "default": "0",
+   "fieldname": "age_30_60",
+   "fieldtype": "Float",
+   "label": "30-60 Days"
+  },
+  {
+   "default": "0",
+   "fieldname": "age_60_90",
+   "fieldtype": "Float",
+   "label": "60-90 Days"
+  },
+  {
+   "default": "0",
+   "fieldname": "age_90_120",
+   "fieldtype": "Float",
+   "label": "90-120 Days"
+  },
+  {
+   "default": "0",
+   "fieldname": "age_120_150",
+   "fieldtype": "Float",
+   "label": "120-150 Days"
+  },
+  {
+   "default": "0",
+   "fieldname": "age_150_180",
+   "fieldtype": "Float",
+   "label": "150-180 Days"
+  },
+  {
+   "default": "0",
+   "fieldname": "age_180_above",
+   "fieldtype": "Float",
+   "label": "180+ Days"
+  },
+  {
+   "fieldname": "company_outstandings",
+   "fieldtype": "Table",
+   "label": "Company Outstandings",
+   "options": "Customer Company Outstanding"
+  },
+  {
+   "default": "1",
+   "fieldname": "active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Active"
   }
  ],
- "field_order": [
-  "customer_name",
-  "gstin",
-  "state",
-  "phone",
-  "address"
- ],
+ "module": "Clssurya",
+ "name": "Customer",
  "permissions": [
   {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
    "role": "System Manager",
-   "read": 1,
-   "write": 1,
-   "create": 1,
-   "delete": 1
+   "write": 1
   },
   {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
    "role": "CS Admin",
-   "read": 1,
-   "write": 1,
-   "create": 1,
-   "delete": 1
+   "write": 1
   },
   {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
    "role": "CS Sales",
-   "read": 1,
-   "write": 1,
-   "create": 1,
-   "delete": 1
+   "write": 1
   },
   {
-   "role": "CS Store",
-   "read": 1
+   "read": 1,
+   "role": "CS Store"
   }
  ],
- "autoname": "field:customer_name"
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "title_field": "customer_name"
 }
