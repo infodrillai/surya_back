@@ -1,23 +1,35 @@
 {
+ "actions": [],
+ "autoname": "format:QTN-{#####}",
+ "creation": "2026-10-21 14:38:44.737904",
  "doctype": "DocType",
- "name": "Quotation",
- "module": "Clssurya",
  "engine": "InnoDB",
- "custom": 0,
- "istable": 0,
- "issingle": 0,
- "editable_grid": 0,
- "track_changes": 1,
- "sort_field": "modified",
- "sort_order": "DESC",
+ "field_order": [
+  "customer",
+  "quotation_date",
+  "version",
+  "parent_quotation",
+  "status",
+  "items",
+  "total_amount",
+  "below_cost",
+  "previous_version",
+  "cgst",
+  "sgst",
+  "igst",
+  "discount",
+  "discount_amount",
+  "tax",
+  "tax_amount"
+ ],
  "fields": [
   {
    "fieldname": "customer",
    "fieldtype": "Link",
+   "in_list_view": 1,
    "label": "Customer",
    "options": "Customer",
-   "reqd": 1,
-   "in_list_view": 1
+   "reqd": 1
   },
   {
    "fieldname": "quotation_date",
@@ -25,10 +37,10 @@
    "label": "Quotation Date"
   },
   {
+   "default": "1",
    "fieldname": "version",
    "fieldtype": "Int",
    "label": "Version",
-   "default": 1,
    "read_only": 1
   },
   {
@@ -39,12 +51,12 @@
    "read_only": 1
   },
   {
+   "default": "Draft",
    "fieldname": "status",
    "fieldtype": "Select",
+   "in_list_view": 1,
    "label": "Status",
-   "options": "Draft\nSent\nSuperseded\nAccepted\nRejected",
-   "default": "Draft",
-   "in_list_view": 1
+   "options": "Draft\nSent\nSuperseded\nAccepted\nRejected"
   },
   {
    "fieldname": "items",
@@ -55,50 +67,107 @@
   {
    "fieldname": "total_amount",
    "fieldtype": "Currency",
+   "in_list_view": 1,
    "label": "Total Amount",
    "precision": "9",
-   "in_list_view": 1,
    "read_only": 1
   },
   {
+   "default": "0",
    "fieldname": "below_cost",
    "fieldtype": "Check",
    "label": "Below Cost",
    "read_only": 1
+  },
+  {
+   "fieldname": "previous_version",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Previous Version",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cgst",
+   "fieldtype": "Float",
+   "hidden": 1,
+   "label": "Cgst",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sgst",
+   "fieldtype": "Float",
+   "hidden": 1,
+   "label": "Sgst",
+   "read_only": 1
+  },
+  {
+   "fieldname": "igst",
+   "fieldtype": "Float",
+   "hidden": 1,
+   "label": "Igst",
+   "read_only": 1
+  },
+  {
+   "fieldname": "discount",
+   "fieldtype": "Float",
+   "hidden": 1,
+   "label": "Discount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "discount_amount",
+   "fieldtype": "Float",
+   "hidden": 1,
+   "label": "Discount Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "tax",
+   "fieldtype": "Float",
+   "hidden": 1,
+   "label": "Tax",
+   "read_only": 1
+  },
+  {
+   "fieldname": "tax_amount",
+   "fieldtype": "Float",
+   "hidden": 1,
+   "label": "Tax Amount",
+   "read_only": 1
   }
  ],
- "field_order": [
-  "customer",
-  "quotation_date",
-  "version",
-  "parent_quotation",
-  "status",
-  "items",
-  "total_amount",
-  "below_cost"
- ],
+ "links": [],
+ "modified": "2026-10-21 16:44:51.354083",
+ "modified_by": "Administrator",
+ "module": "Clssurya",
+ "name": "Quotation",
+ "owner": "Administrator",
  "permissions": [
   {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
    "role": "System Manager",
-   "read": 1,
-   "write": 1,
-   "create": 1,
-   "delete": 1
+   "write": 1
   },
   {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
    "role": "CS Admin",
-   "read": 1,
-   "write": 1,
-   "create": 1,
-   "delete": 1
+   "write": 1
   },
   {
-   "role": "CS Sales",
-   "read": 1,
-   "write": 1,
    "create": 1,
-   "delete": 1
+   "delete": 1,
+   "read": 1,
+   "role": "CS Sales",
+   "write": 1
   }
  ],
- "autoname": "format:QTN-{#####}"
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
 }

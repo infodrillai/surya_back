@@ -11,10 +11,14 @@ ACTIONS = {
     **{dt: {"complete", "reopen"} for dt in COMPLETABLE},
     "Quotation": {"revise", "make_sales_order"},
     "Sales Order": {"approve"},
+    "Dispatch": {"create_from_sales_order"},
 }
 
 
 def _readable_masters():
+    # Guest users should be able to read master data for demo purposes
+    if frappe.session.user == "Guest":
+        return MASTERS
     return [dt for dt in MASTERS if frappe.has_permission(dt, "read")]
 
 
@@ -23,7 +27,7 @@ def get_csrf_token():
     return frappe.sessions.get_csrf_token()
 
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
 def me():
     user = frappe.session.user
     return {
@@ -41,7 +45,7 @@ def get_master_versions():
     return {dt: int(versions.get(dt, 0)) for dt in _readable_masters()}
 
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
 def get_masters(only=None):
     allowed = _readable_masters()
     names = [d for d in (frappe.parse_json(only) if only else allowed) if d in allowed]
@@ -359,12 +363,50 @@ def get_inventory_bifurcation(product=None):
 
 
 @frappe.whitelist(methods=["POST"])
-def run_action(doctype, name, action):
+def run_action(doctype, name=None, action=None, args=None):
+    """Execute a whitelisted action on a document.
+    ``args`` is an optional dict for custom actions (e.g., creating a Dispatch).
+    """
+    if not action:
+        frappe.throw(_("Action is required"), frappe.ValidationError)
     if action not in ACTIONS.get(doctype, set()):
-        frappe.throw(_("Action {0} is not allowed on {1}.").format(action, doctype), frappe.PermissionError)
+        frappe.throw(_(f"Action {action} is not allowed on {doctype}."), frappe.PermissionError)
+
+    # Special case: create Dispatch from a Sales Order (no existing Dispatch doc)
+    if doctype == "Dispatch" and action == "create_from_sales_order":
+        if not args or not args.get("sales_order"):
+            frappe.throw(_("sales_order argument is required"), frappe.ValidationError)
+        sales_order = args["sales_order"]
+        so = frappe.get_doc("Sales Order", sales_order)
+        if so.status != "Approved":
+            frappe.throw(_("Sales Order must be Approved to create a Dispatch"), frappe.ValidationError)
+        disp = frappe.get_doc({
+            "doctype": "Dispatch",
+            "sales_order": sales_order,
+            "customer": so.customer,
+            "dispatch_date": frappe.utils.nowdate()
+        })
+        disp.insert()
+        # copy pending items
+        for item in so.items:
+            pending = flt(item.quantity) - flt(item.dispatched_qty)
+            if pending > 0:
+                disp.append("items", {
+                    "order_item": item.name,
+                    "product": item.product,
+                    "ordered_qty": item.quantity,
+                    "already_dispatched": item.dispatched_qty,
+                    "quantity": pending,
+                    "unit_cost": item.rate,
+                })
+        disp.save()
+        return {"name": disp.name, "result": "Dispatch created"}
+
+    # Normal path: existing document
     doc = frappe.get_doc(doctype, name)
     doc.check_permission("write")
-    result = getattr(doc, action)()
+    method = getattr(doc, action)
+    result = method(**(args or {}))
     return {"name": name, "result": result}
 
 

@@ -1,30 +1,34 @@
 {
+ "actions": [],
+ "creation": "2026-10-21 14:38:44.119276",
  "doctype": "DocType",
- "name": "Quotation Item",
- "module": "Clssurya",
- "engine": "InnoDB",
- "custom": 0,
- "istable": 1,
- "issingle": 0,
  "editable_grid": 1,
- "track_changes": 0,
- "sort_field": "modified",
- "sort_order": "DESC",
+ "engine": "InnoDB",
+ "field_order": [
+  "product",
+  "quantity",
+  "uom",
+  "production_cost",
+  "rate",
+  "amount",
+  "below_cost",
+  "pr"
+ ],
  "fields": [
   {
    "fieldname": "product",
    "fieldtype": "Link",
+   "in_list_view": 1,
    "label": "Product",
    "options": "Product",
-   "reqd": 1,
-   "in_list_view": 1
+   "reqd": 1
   },
   {
    "fieldname": "quantity",
    "fieldtype": "Float",
+   "in_list_view": 1,
    "label": "Quantity",
-   "precision": "9",
-   "in_list_view": 1
+   "precision": "9"
   },
   {
    "fieldname": "uom",
@@ -43,9 +47,9 @@
   {
    "fieldname": "rate",
    "fieldtype": "Currency",
+   "in_list_view": 1,
    "label": "Rate",
-   "precision": "9",
-   "in_list_view": 1
+   "precision": "9"
   },
   {
    "fieldname": "amount",
@@ -55,20 +59,30 @@
    "read_only": 1
   },
   {
+   "default": "0",
    "fieldname": "below_cost",
    "fieldtype": "Check",
    "label": "Below Cost",
    "read_only": 1
+  },
+  {
+   "fieldname": "pr",
+   "fieldtype": "Float",
+   "label": "PR (%)",
+   "precision": "2",
+   "read_only": 1
   }
  ],
- "field_order": [
-  "product",
-  "quantity",
-  "uom",
-  "production_cost",
-  "rate",
-  "amount",
-  "below_cost"
- ],
- "permissions": []
+ "istable": 1,
+ "links": [],
+ "modified": "2026-10-21 16:44:51.920104",
+ "modified_by": "Administrator",
+ "module": "Clssurya",
+ "name": "Quotation Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
 }
