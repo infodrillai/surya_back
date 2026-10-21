@@ -106,6 +106,258 @@ def get_finished_cost():
     return {r.product: {"stock": r.stock, "unit_price": r.unit_price} for r in rows}
 
 
+@frappe.whitelist()
+def get_inventory_bifurcation(product=None):
+    """Calculates the charge and component bifurcation of total valuation for inventory."""
+    if not frappe.has_permission("Inventory", "read"):
+        raise frappe.PermissionError
+
+    filters = {"product": product} if product else {}
+    inv_rows = frappe.get_all("Inventory", filters=filters, fields=["name", "product", "stage", "stock", "total_amount", "unit_price"])
+
+    results = {}
+    default_prices = {
+        "ALM": 450.0,
+        "RAW-PU": 466.0,
+        "RAW-MOCA": 438.0,
+        "RAW-BOND": 3065.0,
+        "RAW-CHEM": 225.0,
+        "RAW-OXIDE": 59.0,
+        "RAW-2020E": 2015.0,
+    }
+
+    raw_labels = {
+        "ALM": "Aluminium (Insert)",
+        "RAW-PU": "Polyurethane (PU)",
+        "RAW-MOCA": "MOCA Curing Agent",
+        "RAW-BOND": "Bonding Agent",
+        "RAW-CHEM": "Chemical Additive",
+        "RAW-OXIDE": "Aluminium Oxide",
+        "RAW-2020E": "2020-E Stabilizer",
+        "SCP": "Scrap",
+    }
+
+    raw_colors = {
+        "ALM": "#0284c7",
+        "RAW-PU": "#06b6d4",
+        "RAW-MOCA": "#3b82f6",
+        "RAW-BOND": "#6366f1",
+        "RAW-CHEM": "#8b5cf6",
+        "RAW-OXIDE": "#a855f7",
+        "RAW-2020E": "#ec4899",
+    }
+
+    charge_colors = {
+        "Labour Expense": "#f59e0b",
+        "Electricity": "#eab308",
+        "CNC Repairing and Tooling": "#10b981",
+        "Admin Expense": "#64748b",
+    }
+
+    for item in inv_rows:
+        stock = flt(item.stock)
+        unit_price = flt(item.unit_price)
+        total_amount = flt(item.total_amount) or (stock * unit_price)
+        key = f"{item.product}_{item.stage}"
+
+        if item.stage == "Raw" or not frappe.db.exists("BOM", item.product):
+            pname = frappe.db.get_value("Product", item.product, "product_name") or item.product
+            results[key] = {
+                "product": item.product,
+                "stage": item.stage,
+                "stock": stock,
+                "unit_price": unit_price,
+                "total_amount": total_amount,
+                "cost_heads": {
+                    "material": {"name": "Raw Materials", "amount": total_amount, "unit_rate": unit_price, "percent": 100.0, "color": "#0284c7"},
+                    "rejection": {"name": "Rejection Cost", "amount": 0.0, "unit_rate": 0.0, "percent": 0.0, "color": "#ef4444"},
+                    "labour": {"name": "Labour Expense", "amount": 0.0, "unit_rate": 0.0, "percent": 0.0, "color": "#f59e0b"},
+                    "electricity": {"name": "Electricity", "amount": 0.0, "unit_rate": 0.0, "percent": 0.0, "color": "#eab308"},
+                    "cnc": {"name": "CNC Repair & Tooling", "amount": 0.0, "unit_rate": 0.0, "percent": 0.0, "color": "#10b981"},
+                    "admin": {"name": "Admin Expense", "amount": 0.0, "unit_rate": 0.0, "percent": 0.0, "color": "#64748b"},
+                },
+                "components": [
+                    {
+                        "name": raw_labels.get(item.product, pname),
+                        "code": item.product,
+                        "category": "Material",
+                        "per_unit": unit_price,
+                        "total": total_amount,
+                        "percent": 100.0,
+                        "color": raw_colors.get(item.product, "#0284c7"),
+                    }
+                ],
+            }
+            continue
+
+        bom = frappe.get_doc("BOM", item.product)
+
+        # Stage 1 material items
+        s1_items = []
+        s1_unit = 0.0
+        for r in bom.stage1_items:
+            rate = inventory_price(r.product, "Raw") or default_prices.get(r.product, 450.0)
+            u = flt(r.per_unit_utilization) * rate
+            s1_items.append({
+                "name": raw_labels.get(r.product, r.product),
+                "code": r.product,
+                "category": "Material",
+                "per_unit": u,
+                "color": raw_colors.get(r.product, "#0284c7"),
+            })
+            s1_unit += u
+
+        if item.stage == "Stage 1":
+            scale = (unit_price / s1_unit) if (s1_unit and abs(unit_price - s1_unit) > 0.001) else 1.0
+            comps = []
+            for it in s1_items:
+                pu = round(it["per_unit"] * scale, 2)
+                tot = round(pu * stock, 2)
+                pct = round((pu / unit_price * 100), 1) if unit_price else 0
+                comps.append({**it, "per_unit": pu, "total": tot, "percent": pct})
+            results[key] = {
+                "product": item.product,
+                "stage": item.stage,
+                "stock": stock,
+                "unit_price": unit_price,
+                "total_amount": total_amount,
+                "cost_heads": {
+                    "material": {"name": "Raw Materials", "amount": total_amount, "unit_rate": unit_price, "percent": 100.0, "color": "#0284c7"},
+                    "rejection": {"name": "Rejection Cost", "amount": 0.0, "unit_rate": 0.0, "percent": 0.0, "color": "#ef4444"},
+                    "labour": {"name": "Labour Expense", "amount": 0.0, "unit_rate": 0.0, "percent": 0.0, "color": "#f59e0b"},
+                    "electricity": {"name": "Electricity", "amount": 0.0, "unit_rate": 0.0, "percent": 0.0, "color": "#eab308"},
+                    "cnc": {"name": "CNC Repair & Tooling", "amount": 0.0, "unit_rate": 0.0, "percent": 0.0, "color": "#10b981"},
+                    "admin": {"name": "Admin Expense", "amount": 0.0, "unit_rate": 0.0, "percent": 0.0, "color": "#64748b"},
+                },
+                "components": comps,
+            }
+            continue
+
+        # Stage 2 materials
+        s2_items = []
+        s2_unit = 0.0
+        for r in bom.stage2_items:
+            rate = inventory_price(r.product, "Raw") or default_prices.get(r.product, 0)
+            u = flt(r.per_unit_utilization) * rate
+            s2_items.append({
+                "name": raw_labels.get(r.product, r.product),
+                "code": r.product,
+                "category": "Material",
+                "per_unit": u,
+                "color": raw_colors.get(r.product, "#6366f1"),
+            })
+            s2_unit += u
+
+        base_unit = s1_unit + s2_unit
+        rejection_pct = 10.0
+        latest_s2b = frappe.db.get_value("Stage 2 Batch", {"product": item.product, "is_completed": 1}, "rejection_percent")
+        if latest_s2b is not None:
+            rejection_pct = flt(latest_s2b)
+
+        rejection_unit = base_unit * (rejection_pct / 100.0)
+        s2_total_unit = base_unit + rejection_unit
+
+        s3_charges = []
+        s3_unit = 0.0
+        for c in bom.stage3_charges:
+            pu = flt(c.per_unit_price)
+            s3_charges.append({
+                "name": c.charge,
+                "code": c.charge,
+                "category": "Charge",
+                "per_unit": pu,
+                "color": charge_colors.get(c.charge, "#10b981"),
+            })
+            s3_unit += pu
+
+        if item.stage == "Stage 2":
+            full_unit = s2_total_unit
+            scale = (unit_price / full_unit) if (full_unit and abs(unit_price - full_unit) > 0.001) else 1.0
+            comps = []
+            for it in [*s1_items, *s2_items]:
+                pu = round(it["per_unit"] * scale, 2)
+                comps.append({**it, "per_unit": pu, "total": round(pu * stock, 2), "percent": round((pu / unit_price * 100), 1) if unit_price else 0})
+            rej_pu = round(rejection_unit * scale, 2)
+            comps.append({
+                "name": f"Rejection ({rejection_pct:.0f}%)",
+                "code": "REJECTION",
+                "category": "Rejection",
+                "per_unit": rej_pu,
+                "total": round(rej_pu * stock, 2),
+                "percent": round((rej_pu / unit_price * 100), 1) if unit_price else 0,
+                "color": "#ef4444",
+            })
+            mat_tot = sum(c["total"] for c in comps if c["category"] == "Material")
+            rej_tot = sum(c["total"] for c in comps if c["category"] == "Rejection")
+            results[key] = {
+                "product": item.product,
+                "stage": item.stage,
+                "stock": stock,
+                "unit_price": unit_price,
+                "total_amount": total_amount,
+                "cost_heads": {
+                    "material": {"name": "Raw Materials", "amount": mat_tot, "unit_rate": round(mat_tot / stock, 2) if stock else 0, "percent": round(mat_tot / total_amount * 100, 1) if total_amount else 0, "color": "#0284c7"},
+                    "rejection": {"name": "Rejection Cost", "amount": rej_tot, "unit_rate": round(rej_tot / stock, 2) if stock else 0, "percent": round(rej_tot / total_amount * 100, 1) if total_amount else 0, "color": "#ef4444"},
+                    "labour": {"name": "Labour Expense", "amount": 0.0, "unit_rate": 0.0, "percent": 0.0, "color": "#f59e0b"},
+                    "electricity": {"name": "Electricity", "amount": 0.0, "unit_rate": 0.0, "percent": 0.0, "color": "#eab308"},
+                    "cnc": {"name": "CNC Repair & Tooling", "amount": 0.0, "unit_rate": 0.0, "percent": 0.0, "color": "#10b981"},
+                    "admin": {"name": "Admin Expense", "amount": 0.0, "unit_rate": 0.0, "percent": 0.0, "color": "#64748b"},
+                },
+                "components": comps,
+            }
+            continue
+
+        # Finished Stage
+        full_unit = s2_total_unit + s3_unit
+        scale = (unit_price / full_unit) if (full_unit and abs(unit_price - full_unit) > 0.001) else 1.0
+
+        comps = []
+        for it in [*s1_items, *s2_items]:
+            pu = round(it["per_unit"] * scale, 2)
+            comps.append({**it, "per_unit": pu, "total": round(pu * stock, 2), "percent": round((pu / unit_price * 100), 1) if unit_price else 0})
+
+        rej_pu = round(rejection_unit * scale, 2)
+        comps.append({
+            "name": f"Rejection ({rejection_pct:.0f}%)",
+            "code": "REJECTION",
+            "category": "Rejection",
+            "per_unit": rej_pu,
+            "total": round(rej_pu * stock, 2),
+            "percent": round((rej_pu / unit_price * 100), 1) if unit_price else 0,
+            "color": "#ef4444",
+        })
+
+        for it in s3_charges:
+            pu = round(it["per_unit"] * scale, 2)
+            comps.append({**it, "per_unit": pu, "total": round(pu * stock, 2), "percent": round((pu / unit_price * 100), 1) if unit_price else 0})
+
+        mat_tot = sum(c["total"] for c in comps if c["category"] == "Material")
+        rej_tot = sum(c["total"] for c in comps if c["category"] == "Rejection")
+        lab_tot = sum(c["total"] for c in comps if "Labour" in c["name"])
+        elec_tot = sum(c["total"] for c in comps if "Electricity" in c["name"])
+        cnc_tot = sum(c["total"] for c in comps if "CNC" in c["name"])
+        admin_tot = sum(c["total"] for c in comps if "Admin" in c["name"])
+
+        results[key] = {
+            "product": item.product,
+            "stage": item.stage,
+            "stock": stock,
+            "unit_price": unit_price,
+            "total_amount": total_amount,
+            "cost_heads": {
+                "material": {"name": "Raw Materials", "amount": mat_tot, "unit_rate": round(mat_tot / stock, 2) if stock else 0, "percent": round(mat_tot / total_amount * 100, 1) if total_amount else 0, "color": "#0284c7"},
+                "rejection": {"name": "Rejection Cost", "amount": rej_tot, "unit_rate": round(rej_tot / stock, 2) if stock else 0, "percent": round(rej_tot / total_amount * 100, 1) if total_amount else 0, "color": "#ef4444"},
+                "labour": {"name": "Labour Expense", "amount": lab_tot, "unit_rate": round(lab_tot / stock, 2) if stock else 0, "percent": round(lab_tot / total_amount * 100, 1) if total_amount else 0, "color": "#f59e0b"},
+                "electricity": {"name": "Electricity", "amount": elec_tot, "unit_rate": round(elec_tot / stock, 2) if stock else 0, "percent": round(elec_tot / total_amount * 100, 1) if total_amount else 0, "color": "#eab308"},
+                "cnc": {"name": "CNC Repair & Tooling", "amount": cnc_tot, "unit_rate": round(cnc_tot / stock, 2) if stock else 0, "percent": round(cnc_tot / total_amount * 100, 1) if total_amount else 0, "color": "#10b981"},
+                "admin": {"name": "Admin Expense", "amount": admin_tot, "unit_rate": round(admin_tot / stock, 2) if stock else 0, "percent": round(admin_tot / total_amount * 100, 1) if total_amount else 0, "color": "#64748b"},
+            },
+            "components": comps,
+        }
+
+    return results
+
+
 @frappe.whitelist(methods=["POST"])
 def run_action(doctype, name, action):
     if action not in ACTIONS.get(doctype, set()):
