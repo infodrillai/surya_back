@@ -64,6 +64,14 @@
    "label": "Rejection Percent",
    "precision": "9"
   },
+    {
+   "fieldname": "rejection_per_piece",
+   "fieldtype": "Float",
+   "label": "Rejection Per Piece",
+   "precision": "9",
+   "default": "0",
+   "non_negative": 1
+  },
   {
    "fieldname": "rejection_amount",
    "fieldtype": "Currency",
@@ -86,6 +94,7 @@
    "in_list_view": 1,
    "read_only": 1
   },
+  
   {
    "fieldname": "is_completed",
    "fieldtype": "Check",
@@ -120,6 +129,7 @@
   "carried_cost",
   "added_cost",
   "rejection_percent",
+  "rejection_per_piece",
   "rejection_amount",
   "batch_total",
   "unit_cost",

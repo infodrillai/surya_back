@@ -49,3 +49,14 @@ class Quotation(Document):
         }).insert()
         self.db_set("status", "Accepted")
         return so.name
+
+    def approve(self):
+        """Approve a quotation – changes status to Approved.
+        Only Draft quotations can be approved; otherwise a validation error is raised.
+        """
+        if self.status != "Draft":
+            frappe.throw(_("Only Draft quotations can be approved."))
+        # Update status and persist
+        self.db_set("status", "Approved")
+        return f"Quotation {self.name} approved"
+

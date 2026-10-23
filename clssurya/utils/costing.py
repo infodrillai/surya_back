@@ -10,15 +10,20 @@ def money(value):
     return float(Decimal(str(value or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
-def stage_totals(carried, added, rejection_percent, qty):
-    base = (carried or 0) + (added or 0)
-    rejection = base * (rejection_percent or 0) / 100
+def stage_totals(carried, added, rejection_percent, qty, tooling=0, rejection_per_piece=0):
+    base = (carried or 0) + (added or 0) + (tooling or 0)
+    # a per-piece amount overrides the percentage when entered
+    if (rejection_per_piece or 0) > 0:
+        rejection = rejection_per_piece * (qty or 0)
+    else:
+        rejection = base * (rejection_percent or 0) / 100
     total = base + rejection
     return {
         "base": base,
         "rejection_amount": rejection,
         "batch_total": total,
         "unit_cost": total / qty if qty else 0,
+        "unit_cost_without_rejection": base / qty if qty else 0,
     }
 
 

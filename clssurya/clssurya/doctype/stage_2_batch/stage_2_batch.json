@@ -65,6 +65,14 @@
    "precision": "9",
    "read_only": 1
   },
+    {
+   "fieldname": "rejection_per_piece",
+   "fieldtype": "Float",
+   "label": "Rejection Per Piece",
+   "precision": "9",
+   "default": "0",
+   "non_negative": 1
+  },
   {
    "fieldname": "batch_total",
    "fieldtype": "Currency",
@@ -78,6 +86,13 @@
    "label": "Unit Cost",
    "precision": "9",
    "in_list_view": 1,
+   "read_only": 1
+  },
+    {
+   "fieldname": "unit_cost_without_rejection",
+   "fieldtype": "Currency",
+   "label": "Unit Cost Without Rejection",
+   "precision": "9",
    "read_only": 1
   },
   {
@@ -113,7 +128,9 @@
   "carried_cost",
   "added_cost",
   "rejection_percent",
+  "rejection_per_piece",
   "rejection_amount",
+  "unit_cost_without_rejection",
   "batch_total",
   "unit_cost",
   "is_completed",

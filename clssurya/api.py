@@ -9,9 +9,9 @@ from clssurya.utils.versions import get_versions
 
 ACTIONS = {
     **{dt: {"complete", "reopen"} for dt in COMPLETABLE},
-    "Quotation": {"revise", "make_sales_order"},
-    "Sales Order": {"approve"},
-    "Dispatch": {"create_from_sales_order"},
+    "Quotation": {"revise", "make_sales_order", "approve"},
+    "Sales Order": {"approve", "create_dispatch"},
+    "Dispatch": {"create_from_sales_order", "complete", "reopen", "cancel"},
 }
 
 
@@ -373,34 +373,57 @@ def run_action(doctype, name=None, action=None, args=None):
         frappe.throw(_(f"Action {action} is not allowed on {doctype}."), frappe.PermissionError)
 
     # Special case: create Dispatch from a Sales Order (no existing Dispatch doc)
+
+    # Special case: create Dispatch from an approved Sales Order
     if doctype == "Dispatch" and action == "create_from_sales_order":
         if not args or not args.get("sales_order"):
-            frappe.throw(_("sales_order argument is required"), frappe.ValidationError)
+            frappe.throw(
+                _("sales_order argument is required"),
+                frappe.ValidationError,
+            )
+
         sales_order = args["sales_order"]
         so = frappe.get_doc("Sales Order", sales_order)
-        if so.status != "Approved":
-            frappe.throw(_("Sales Order must be Approved to create a Dispatch"), frappe.ValidationError)
-        disp = frappe.get_doc({
-            "doctype": "Dispatch",
-            "sales_order": sales_order,
-            "customer": so.customer,
-            "dispatch_date": frappe.utils.nowdate()
-        })
-        disp.insert()
-        # copy pending items
+
+        if so.status not in ("Approved", "Partially Dispatched"):
+            frappe.throw(
+                _("Sales Order must be Approved or Partially Dispatched."),
+                frappe.ValidationError,
+            )
+
+        disp = frappe.new_doc("Dispatch")
+        disp.sales_order = so.name
+        disp.customer = so.customer
+        disp.dispatch_date = frappe.utils.nowdate()
+
+        # Populate Dispatch items BEFORE insert/validation
         for item in so.items:
-            pending = flt(item.quantity) - flt(item.dispatched_qty)
-            if pending > 0:
+            ordered_qty = flt(item.quantity)
+            dispatched_qty = flt(item.dispatched_qty)
+
+            pending_qty = ordered_qty - dispatched_qty
+
+            if pending_qty > 0:
                 disp.append("items", {
                     "order_item": item.name,
                     "product": item.product,
-                    "ordered_qty": item.quantity,
-                    "already_dispatched": item.dispatched_qty,
-                    "quantity": pending,
-                    "unit_cost": item.rate,
+                    "ordered_qty": ordered_qty,
+                    "already_dispatched": dispatched_qty,
+                    "quantity": pending_qty,
+                    "unit_cost": flt(item.rate),
                 })
-        disp.save()
-        return {"name": disp.name, "result": "Dispatch created"}
+
+        if not disp.items:
+            # No pending items – return a friendly message instead of raising an error
+            return {"name": None, "result": "No pending items to dispatch for this Sales Order."}
+
+        # Insert only after all item rows have been added
+        disp.insert()
+
+        return {
+            "name": disp.name,
+            "result": "Dispatch created",
+        }
 
     # Normal path: existing document
     doc = frappe.get_doc(doctype, name)

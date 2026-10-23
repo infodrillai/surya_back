@@ -1,13 +1,10 @@
 import frappe
 from frappe import _
 from frappe.utils import flt, now_datetime
-
 from clssurya.utils.base import CompletableDocument
 from clssurya.utils.stock_service import inventory_price
 
-EPS = 1e-9
-
-
+EPS = 1e-6  # increased tolerance to avoid rounding‑error validation failures
 class Dispatch(CompletableDocument):
     def _order(self, lock=False):
         if not self.sales_order:
@@ -26,6 +23,8 @@ class Dispatch(CompletableDocument):
                 frappe.throw(_("Row {0}: order line not found.").format(r.idx))
             r.product, r.ordered_qty, r.already_dispatched = line.product, line.quantity, line.dispatched_qty
             r.unit_cost = inventory_price(r.product, "Finished")
+            # Set default dispatch quantity to the remaining quantity on the order
+            r.quantity = flt(r.ordered_qty) - flt(r.already_dispatched)
 
     def validate_doc(self):
         if self._order().status not in ("Approved", "Partially Dispatched"):
@@ -37,7 +36,7 @@ class Dispatch(CompletableDocument):
                 frappe.throw(_("Row {0}: quantity must be above 0.").format(r.idx))
             if flt(r.quantity) > flt(r.ordered_qty) - flt(r.already_dispatched) + EPS:
                 frappe.throw(_("Row {0}: cannot dispatch more than the remaining {1}.").format(r.idx, flt(r.ordered_qty) - flt(r.already_dispatched)))
-
+    
     def before_complete(self):
         self._order(lock=True)
         self.calculate()
@@ -59,8 +58,35 @@ class Dispatch(CompletableDocument):
         flag = {"is_completed": 1, "completed_on": now_datetime(), "completed_by": frappe.session.user} if all_done else {"is_completed": 0, "completed_on": None, "completed_by": None}
         so.db_set({"status": status, **flag})
 
+    def cancel(self):
+        """Cancel a pending dispatch without affecting stock or sales order."""
+        if self.dispatch_status not in ("Draft", "Pending"):
+            frappe.throw(_("Only Draft or Pending dispatches can be cancelled."))
+        self.db_set("dispatch_status", "Cancelled")
+
+    @frappe.whitelist()
+    def cancel_dispatch(self):
+        """Whitelisted version – called from the UI Cancel button."""
+        self.cancel()
+        return {"status": "Cancelled"}
+
     def after_complete(self):
-        self._apply(+1)
+        """Called by CompletableDocument.complete() – apply stock and update status."""
+        self._apply(1)
+        # Set dispatch_status to 'Dispatched'
+        self.db_set("dispatch_status", "Dispatched")
+
+    @frappe.whitelist()
+    def confirm_dispatch(self):
+        """Whitelisted – confirm the dispatch, deduct stock, update Sales Order status."""
+        if self.dispatch_status not in ("Draft", "Pending"):
+            frappe.throw(_("Only Draft or Pending dispatches can be confirmed."))
+        self._order(lock=True)
+        self.calculate()
+        self.validate_doc()
+        self._apply(1)
+        self.db_set("dispatch_status", "Dispatched")
+        return {"status": "Dispatched"}
 
     def before_reopen(self):
         self._order(lock=True)
