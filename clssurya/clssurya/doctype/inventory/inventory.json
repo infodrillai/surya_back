@@ -23,7 +23,7 @@
    "fieldname": "stage",
    "fieldtype": "Select",
    "label": "Stage",
-   "options": "Raw\nStage 1\nStage 2\nStage 3\nFinished",
+   "options": "Raw\nStage 1\nStage 2\nStage 3\nFinished\nDamaged",
    "reqd": 1,
    "in_list_view": 1
   },

@@ -10,7 +10,6 @@
   "customer_name",
   "gstin",
   "pan",
-  "phone",
   "mobile",
   "email",
   "city",
@@ -49,12 +48,6 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "PAN"
-  },
-  {
-   "fieldname": "phone",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Phone"
   },
   {
    "fieldname": "mobile",

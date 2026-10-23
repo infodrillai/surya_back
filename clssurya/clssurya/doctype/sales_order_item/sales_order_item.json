@@ -55,6 +55,22 @@
    "read_only": 1
   },
   {
+   "fieldname": "returned_qty",
+   "fieldtype": "Float",
+   "label": "Returned Qty",
+   "precision": "9",
+   "default": "0",
+   "read_only": 1
+  },
+  {
+   "fieldname": "net_delivered_qty",
+   "fieldtype": "Float",
+   "label": "Net Delivered Qty",
+   "precision": "9",
+   "default": "0",
+   "read_only": 1
+  },
+  {
    "fieldname": "pending_qty",
    "fieldtype": "Float",
    "label": "Pending Qty",
@@ -69,6 +85,8 @@
   "rate",
   "amount",
   "dispatched_qty",
+  "returned_qty",
+  "net_delivered_qty",
   "pending_qty"
  ],
  "permissions": []

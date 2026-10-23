@@ -11,17 +11,19 @@
   "parent_quotation",
   "status",
   "items",
-  "total_amount",
+  "subtotal",
+  "discount_percent",
+  "discount_amount",
+  "taxable_amount",
+  "gst_percent",
+  "tax_amount",
+  "grand_total",
   "below_cost",
   "previous_version",
   "cgst",
   "sgst",
-  "igst",
-  "discount",
-  "discount_amount",
-  "tax",
-  "tax_amount"
- ],
+  "igst"
+],
  "fields": [
   {
    "fieldname": "customer",
@@ -56,7 +58,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Draft\nSent\nSuperseded\nAccepted\nRejected"
+   "options": "Draft\nSent\nApproved\nSuperseded\nAccepted\nRejected"
   },
   {
    "fieldname": "items",
@@ -64,14 +66,7 @@
    "label": "Items",
    "options": "Quotation Item"
   },
-  {
-   "fieldname": "total_amount",
-   "fieldtype": "Currency",
-   "in_list_view": 1,
-   "label": "Total Amount",
-   "precision": "9",
-   "read_only": 1
-  },
+ 
   {
    "default": "0",
    "fieldname": "below_cost",
@@ -79,62 +74,54 @@
    "label": "Below Cost",
    "read_only": 1
   },
-  {
-   "fieldname": "previous_version",
-   "fieldtype": "Data",
-   "hidden": 1,
-   "label": "Previous Version",
-   "read_only": 1
-  },
-  {
-   "fieldname": "cgst",
-   "fieldtype": "Float",
-   "hidden": 1,
-   "label": "Cgst",
-   "read_only": 1
-  },
-  {
-   "fieldname": "sgst",
-   "fieldtype": "Float",
-   "hidden": 1,
-   "label": "Sgst",
-   "read_only": 1
-  },
-  {
-   "fieldname": "igst",
-   "fieldtype": "Float",
-   "hidden": 1,
-   "label": "Igst",
-   "read_only": 1
-  },
-  {
-   "fieldname": "discount",
-   "fieldtype": "Float",
-   "hidden": 1,
-   "label": "Discount",
-   "read_only": 1
-  },
-  {
-   "fieldname": "discount_amount",
-   "fieldtype": "Float",
-   "hidden": 1,
-   "label": "Discount Amount",
-   "read_only": 1
-  },
-  {
-   "fieldname": "tax",
-   "fieldtype": "Float",
-   "hidden": 1,
-   "label": "Tax",
-   "read_only": 1
-  },
-  {
-   "fieldname": "tax_amount",
-   "fieldtype": "Float",
-   "hidden": 1,
-   "label": "Tax Amount",
-   "read_only": 1
-  }
+{
+  "fieldname": "subtotal",
+  "fieldtype": "Currency",
+  "label": "Subtotal",
+  "precision": "9",
+  "read_only": 1
+},
+{
+  "fieldname": "discount_percent",
+  "fieldtype": "Percent",
+  "label": "Discount Percent",
+  "default": "0"
+},
+{
+  "fieldname": "discount_amount",
+  "fieldtype": "Currency",
+  "label": "Discount Amount",
+  "precision": "9",
+  "read_only": 1
+},
+{
+  "fieldname": "taxable_amount",
+  "fieldtype": "Currency",
+  "label": "Taxable Amount",
+  "precision": "9",
+  "read_only": 1
+},
+{
+  "fieldname": "gst_percent",
+  "fieldtype": "Percent",
+  "label": "GST Percent",
+  "default": "18"
+},
+{
+  "fieldname": "tax_amount",
+  "fieldtype": "Currency",
+  "label": "Tax Amount",
+  "precision": "9",
+  "read_only": 1
+},
+{
+  "fieldname": "grand_total",
+  "fieldtype": "Currency",
+  "label": "Grand Total",
+  "precision": "9",
+  "read_only": 1,
+  "in_list_view": 1
+}
  ],
  "links": [],
  "modified": "2026-10-21 16:44:51.354083",

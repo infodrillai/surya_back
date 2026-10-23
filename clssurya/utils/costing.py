@@ -18,12 +18,18 @@ def stage_totals(carried, added, rejection_percent, qty, tooling=0, rejection_pe
     else:
         rejection = base * (rejection_percent or 0) / 100
     total = base + rejection
+    # good_qty = accepted pieces (total minus rejected); unit cost is spread over them
+    if (rejection_percent or 0) > 0:
+        good_qty = (qty or 0) * (1 - (rejection_percent or 0) / 100)
+    else:
+        good_qty = qty or 0
+    effective_qty = good_qty if good_qty > 0 else (qty or 0)
     return {
         "base": base,
         "rejection_amount": rejection,
         "batch_total": total,
-        "unit_cost": total / qty if qty else 0,
-        "unit_cost_without_rejection": base / qty if qty else 0,
+        "unit_cost": total / effective_qty if effective_qty else 0,
+        "unit_cost_without_rejection": base / (qty or 1) if qty else 0,
     }
 
 

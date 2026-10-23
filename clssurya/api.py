@@ -10,8 +10,9 @@ from clssurya.utils.versions import get_versions
 ACTIONS = {
     **{dt: {"complete", "reopen"} for dt in COMPLETABLE},
     "Quotation": {"revise", "make_sales_order", "approve"},
-    "Sales Order": {"approve", "create_dispatch"},
-    "Dispatch": {"create_from_sales_order", "complete", "reopen", "cancel"},
+    "Sales Order": {"approve", "reject", "cancel", "create_dispatch", "create_dispatch_from_sales_order", "linked_dispatches"},
+    "Dispatch": {"confirm_dispatch", "cancel_dispatch", "complete", "reopen"},
+    "Customer Return": {"confirm_return", "cancel_return"},
 }
 
 
@@ -365,71 +366,31 @@ def get_inventory_bifurcation(product=None):
 @frappe.whitelist(methods=["POST"])
 def run_action(doctype, name=None, action=None, args=None):
     """Execute a whitelisted action on a document.
-    ``args`` is an optional dict for custom actions (e.g., creating a Dispatch).
+    ``args`` is an optional dict for custom actions (e.g., items for create_dispatch_from_sales_order).
+    The full return value of the action method is merged into the response so the frontend can
+    access fields like ``name``, ``dispatch_status``, etc. directly on the result object.
     """
     if not action:
         frappe.throw(_("Action is required"), frappe.ValidationError)
     if action not in ACTIONS.get(doctype, set()):
         frappe.throw(_(f"Action {action} is not allowed on {doctype}."), frappe.PermissionError)
 
-    # Special case: create Dispatch from a Sales Order (no existing Dispatch doc)
+    # args may arrive as a JSON string when sent via form-encoded POST
+    if isinstance(args, str):
+        try:
+            args = frappe.parse_json(args)
+        except Exception:
+            args = {}
 
-    # Special case: create Dispatch from an approved Sales Order
-    if doctype == "Dispatch" and action == "create_from_sales_order":
-        if not args or not args.get("sales_order"):
-            frappe.throw(
-                _("sales_order argument is required"),
-                frappe.ValidationError,
-            )
-
-        sales_order = args["sales_order"]
-        so = frappe.get_doc("Sales Order", sales_order)
-
-        if so.status not in ("Approved", "Partially Dispatched"):
-            frappe.throw(
-                _("Sales Order must be Approved or Partially Dispatched."),
-                frappe.ValidationError,
-            )
-
-        disp = frappe.new_doc("Dispatch")
-        disp.sales_order = so.name
-        disp.customer = so.customer
-        disp.dispatch_date = frappe.utils.nowdate()
-
-        # Populate Dispatch items BEFORE insert/validation
-        for item in so.items:
-            ordered_qty = flt(item.quantity)
-            dispatched_qty = flt(item.dispatched_qty)
-
-            pending_qty = ordered_qty - dispatched_qty
-
-            if pending_qty > 0:
-                disp.append("items", {
-                    "order_item": item.name,
-                    "product": item.product,
-                    "ordered_qty": ordered_qty,
-                    "already_dispatched": dispatched_qty,
-                    "quantity": pending_qty,
-                    "unit_cost": flt(item.rate),
-                })
-
-        if not disp.items:
-            # No pending items – return a friendly message instead of raising an error
-            return {"name": None, "result": "No pending items to dispatch for this Sales Order."}
-
-        # Insert only after all item rows have been added
-        disp.insert()
-
-        return {
-            "name": disp.name,
-            "result": "Dispatch created",
-        }
-
-    # Normal path: existing document
     doc = frappe.get_doc(doctype, name)
     doc.check_permission("write")
     method = getattr(doc, action)
     result = method(**(args or {}))
+
+    # If the action returned a dict (e.g. {name, dispatch_status}), merge it into the response
+    # so the caller can do resp.name, resp.dispatch_status, etc.
+    if isinstance(result, dict):
+        return {**result, "doc_name": name}
     return {"name": name, "result": result}
 
 
@@ -807,3 +768,85 @@ def get_customer_outstandings_dashboard(company=None, search=None):
             "total": round(sum(total_age.values()), 2),
         },
     }
+
+
+@frappe.whitelist()
+def get_dispatch_return_items(dispatch_name):
+    """
+    Return a list of dispatch items with their returnable quantities for the Return dialog.
+    Called by the frontend before opening the ReturnDialog.
+    """
+    if not frappe.has_permission("Dispatch", "read"):
+        raise frappe.PermissionError
+
+    disp = frappe.get_doc("Dispatch", dispatch_name)
+
+    if disp.dispatch_status != "Dispatched":
+        frappe.throw(
+            _("Returns can only be created against a confirmed (Dispatched) dispatch. "
+              "Dispatch {0} is currently '{1}'.").format(dispatch_name, disp.dispatch_status)
+        )
+
+    # Collect all confirmed returned qtys per dispatch item row
+    confirmed_returns = frappe.get_all(
+        "Customer Return",
+        filters={"dispatch": dispatch_name, "return_status": "Confirmed"},
+        pluck="name",
+    )
+    already_returned = {}  # dispatch_item_name → total confirmed returned qty
+    for rname in confirmed_returns:
+        rdoc = frappe.get_doc("Customer Return", rname)
+        for row in rdoc.items:
+            already_returned[row.dispatch_item] = already_returned.get(row.dispatch_item, 0.0) + flt(row.return_qty)
+
+    items = []
+    for di in disp.items:
+        dispatched = flt(di.quantity)
+        returned = already_returned.get(di.name, 0.0)
+        returnable = max(0.0, dispatched - returned)
+        items.append({
+            "dispatch_item": di.name,
+            "order_item": di.order_item,
+            "product": di.product,
+            "product_name": frappe.db.get_value("Product", di.product, "product_name") or di.product,
+            "dispatched_qty": dispatched,
+            "already_returned": returned,
+            "returnable_qty": returnable,
+            "unit_cost": flt(di.unit_cost),
+        })
+
+    return {
+        "dispatch_name": dispatch_name,
+        "sales_order": disp.sales_order,
+        "customer": disp.customer,
+        "items": items,
+    }
+
+
+@frappe.whitelist()
+def get_dispatch_returns(dispatch_name):
+    """Return all Customer Return records linked to a dispatch for display in the UI."""
+    if not frappe.has_permission("Customer Return", "read"):
+        raise frappe.PermissionError
+
+    returns = frappe.get_all(
+        "Customer Return",
+        filters={"dispatch": dispatch_name},
+        fields=["name", "return_date", "return_status", "return_reason", "confirmed_on", "confirmed_by"],
+        order_by="creation desc",
+    )
+    result = []
+    for r in returns:
+        doc = frappe.get_doc("Customer Return", r.name)
+        r["items"] = [
+            {
+                "product": row.product,
+                "product_name": frappe.db.get_value("Product", row.product, "product_name") or row.product,
+                "return_qty": flt(row.return_qty),
+                "condition": row.condition,
+                "dispatched_qty": flt(row.dispatched_qty),
+            }
+            for row in doc.items
+        ]
+        result.append(r)
+    return result

@@ -14,6 +14,7 @@ class StageBatch(CompletableDocument):
     """Shared logic for Stage 1/2/3 batches. Stages link only through stock."""
 
     STAGE = 1
+
     def calculate(self):
         qty = flt(self.quantity)
 
@@ -86,9 +87,10 @@ class StageBatch(CompletableDocument):
         self.added_cost = added
         self.rejection_amount = t["rejection_amount"]
         self.batch_total = t["batch_total"]
+        # unit_cost includes rejection — this is the value saved and shown in the list
         self.unit_cost = t["unit_cost"]
-        self.unit_cost_without_rejection = t["unit_cost_without_rejection"]    
-   
+        self.unit_cost_without_rejection = t["unit_cost_without_rejection"]
+
     def _ensure_carried_row(self, qty):
         rows = [r for r in self.get("items") if cint(r.get("is_carried_in"))]
         if self.STAGE == 3:  # Stage 3 consumes the Stage 2 product + charges only
@@ -118,7 +120,7 @@ class StageBatch(CompletableDocument):
             if flt(self.wastage_qty) < 0:
                 frappe.throw(_("Output weight is more than the material used (wastage is negative)."))
         if flt(self.rejection_per_piece) < 0:
-            frappe.throw(_("Rejection per piece cannot be negative."))        
+            frappe.throw(_("Rejection per piece cannot be negative."))
 
     def stock_entries(self):
         entries = []
@@ -126,19 +128,10 @@ class StageBatch(CompletableDocument):
             stage = PREV_STAGE[self.STAGE] if cint(r.get("is_carried_in")) else "Raw"
             entries.append({"product": r.product, "stage": stage, "qty": -flt(r.actual_utilization)})
 
-        # Use the calculated unit_cost (includes rejection) for all stages
+        # Use unit_cost which includes rejection for all stages
         price = flt(self.unit_cost)
         entries.append({"product": self.product, "stage": OUT_STAGE[self.STAGE], "qty": flt(self.quantity), "unit_price": price})
 
-        if self.STAGE == 1 and flt(self.wastage_qty) > 0 and self.wastage_product:
-            entries.append({"product": self.wastage_product, "stage": "Raw", "qty": flt(self.wastage_qty), "unit_price": 0})
-        return entries
-    # def stock_entries(self):
-        entries = []
-        for r in self.get("items"):
-            stage = PREV_STAGE[self.STAGE] if cint(r.get("is_carried_in")) else "Raw"
-            entries.append({"product": r.product, "stage": stage, "qty": -flt(r.actual_utilization)})
-        entries.append({"product": self.product, "stage": OUT_STAGE[self.STAGE], "qty": flt(self.quantity), "unit_price": flt(self.unit_cost)})
         if self.STAGE == 1 and flt(self.wastage_qty) > 0 and self.wastage_product:
             entries.append({"product": self.wastage_product, "stage": "Raw", "qty": flt(self.wastage_qty), "unit_price": 0})
         return entries

@@ -1,0 +1,90 @@
+{
+ "doctype": "DocType",
+ "name": "Customer Return Item",
+ "module": "Clssurya",
+ "engine": "InnoDB",
+ "custom": 0,
+ "istable": 1,
+ "issingle": 0,
+ "editable_grid": 1,
+ "track_changes": 0,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "fields": [
+  {
+   "fieldname": "dispatch_item",
+   "fieldtype": "Data",
+   "label": "Dispatch Item Row",
+   "read_only": 1
+  },
+  {
+   "fieldname": "order_item",
+   "fieldtype": "Data",
+   "label": "Sales Order Item Row",
+   "read_only": 1
+  },
+  {
+   "fieldname": "product",
+   "fieldtype": "Link",
+   "label": "Product",
+   "options": "Product",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "dispatched_qty",
+   "fieldtype": "Float",
+   "label": "Dispatched Qty",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "already_returned",
+   "fieldtype": "Float",
+   "label": "Already Returned",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "returnable_qty",
+   "fieldtype": "Float",
+   "label": "Returnable Qty",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "return_qty",
+   "fieldtype": "Float",
+   "label": "Return Qty",
+   "precision": "9",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "condition",
+   "fieldtype": "Select",
+   "label": "Condition",
+   "options": "Usable\nDamaged\nRequires Inspection",
+   "default": "Usable",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "unit_cost",
+   "fieldtype": "Currency",
+   "label": "Unit Cost",
+   "precision": "9",
+   "read_only": 1
+  }
+ ],
+ "field_order": [
+  "dispatch_item",
+  "order_item",
+  "product",
+  "dispatched_qty",
+  "already_returned",
+  "returnable_qty",
+  "return_qty",
+  "condition",
+  "unit_cost"
+ ],
+ "permissions": []
+}
