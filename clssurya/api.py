@@ -9,6 +9,8 @@ from clssurya.utils.versions import get_versions
 
 ACTIONS = {
     **{dt: {"complete", "reopen"} for dt in COMPLETABLE},
+    "Purchase Entry": {"confirm_order", "cancel_order", "complete", "reopen"},
+    "Goods Receipt": {"confirm_receipt", "cancel_receipt"},
     "Quotation": {"revise", "make_sales_order", "approve"},
     "Sales Order": {"approve", "reject", "cancel", "create_dispatch", "create_dispatch_from_sales_order", "linked_dispatches"},
     "Dispatch": {"confirm_dispatch", "cancel_dispatch", "complete", "reopen"},
@@ -850,3 +852,80 @@ def get_dispatch_returns(dispatch_name):
         ]
         result.append(r)
     return result
+
+
+@frappe.whitelist()
+def get_purchase_order_receipt_items(purchase_order):
+    """Return pending items and metadata for Goods Receipt creation."""
+    if not frappe.has_permission("Purchase Entry", "read"):
+        raise frappe.PermissionError
+    po = frappe.get_doc("Purchase Entry", purchase_order)
+    return po.get_pending_items()
+
+
+@frappe.whitelist()
+def get_purchase_order_receipts(purchase_order):
+    """Return all Goods Receipt records linked to a Purchase Order."""
+    if not frappe.has_permission("Goods Receipt", "read"):
+        raise frappe.PermissionError
+
+    receipts = frappe.get_all(
+        "Goods Receipt",
+        filters={"purchase_order": purchase_order},
+        fields=["name", "posting_date", "status", "supplier_delivery_note", "remarks", "total_qty", "total_amount", "confirmed_on", "confirmed_by"],
+        order_by="creation desc",
+    )
+    result = []
+    for r in receipts:
+        doc = frappe.get_doc("Goods Receipt", r.name)
+        r["items"] = [
+            {
+                "product": row.product,
+                "product_name": row.product_name or frappe.db.get_value("Product", row.product, "product_name") or row.product,
+                "uom": row.uom,
+                "ordered_qty": flt(row.ordered_qty),
+                "already_received_qty": flt(row.already_received_qty),
+                "pending_qty": flt(row.pending_qty),
+                "received_qty": flt(row.received_qty),
+                "rate": flt(row.rate),
+                "landed_rate": flt(row.landed_rate),
+                "amount": flt(row.amount),
+            }
+            for row in doc.items
+        ]
+        result.append(r)
+    return result
+
+
+@frappe.whitelist()
+def create_and_confirm_goods_receipt(purchase_order, posting_date=None, supplier_delivery_note=None, remarks=None, items=None):
+    """Create and confirm a Goods Receipt in one transaction."""
+    from frappe.utils import nowdate
+    if not frappe.has_permission("Goods Receipt", "create"):
+        raise frappe.PermissionError
+
+    if isinstance(items, str):
+        items = frappe.parse_json(items)
+
+    gr = frappe.new_doc("Goods Receipt")
+    gr.purchase_order = purchase_order
+    gr.posting_date = posting_date or nowdate()
+    gr.supplier_delivery_note = supplier_delivery_note or ""
+    gr.remarks = remarks or ""
+    for it in items or []:
+        if flt(it.get("received_qty")) > 0:
+            gr.append("items", {
+                "purchase_order_item": it.get("purchase_order_item"),
+                "product": it.get("product"),
+                "received_qty": flt(it.get("received_qty")),
+            })
+    gr.insert(ignore_permissions=False)
+    confirm_res = gr.confirm_receipt()
+    return {"name": gr.name, "status": gr.status, **confirm_res}
+
+
+@frappe.whitelist()
+def cancel_goods_receipt(goods_receipt_name):
+    """Cancel a Goods Receipt and reverse stock."""
+    gr = frappe.get_doc("Goods Receipt", goods_receipt_name)
+    return gr.cancel_receipt()

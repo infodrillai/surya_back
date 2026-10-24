@@ -30,7 +30,7 @@
    "fieldname": "bill_no",
    "fieldtype": "Data",
    "label": "Bill No",
-   "reqd": 1
+   "reqd": 0
   },
   {
    "fieldname": "vendor_state",
@@ -95,14 +95,57 @@
    "options": "User",
    "read_only": 1,
    "no_copy": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Draft\nOrdered\nPartially Received\nReceived\nCancelled",
+   "default": "Draft",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "expected_delivery_date",
+   "fieldtype": "Date",
+   "label": "Expected Delivery Date",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "total_ordered_qty",
+   "fieldtype": "Float",
+   "label": "Total Ordered Qty",
+   "precision": "9",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "total_received_qty",
+   "fieldtype": "Float",
+   "label": "Total Received Qty",
+   "precision": "9",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "total_pending_qty",
+   "fieldtype": "Float",
+   "label": "Total Pending Qty",
+   "precision": "9",
+   "read_only": 1,
+   "in_list_view": 1
   }
  ],
  "field_order": [
   "vendor",
+  "status",
   "posting_date",
+  "expected_delivery_date",
   "bill_no",
   "vendor_state",
   "items",
+  "total_ordered_qty",
+  "total_received_qty",
+  "total_pending_qty",
   "taxable_amount",
   "tax_amount",
   "extra_charges",

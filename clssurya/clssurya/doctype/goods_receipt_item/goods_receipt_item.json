@@ -1,0 +1,110 @@
+{
+ "doctype": "DocType",
+ "name": "Goods Receipt Item",
+ "module": "Clssurya",
+ "engine": "InnoDB",
+ "custom": 0,
+ "istable": 1,
+ "issingle": 0,
+ "editable_grid": 1,
+ "track_changes": 0,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "fields": [
+  {
+   "fieldname": "purchase_order_item",
+   "fieldtype": "Data",
+   "label": "Purchase Order Item",
+   "reqd": 1
+  },
+  {
+   "fieldname": "product",
+   "fieldtype": "Link",
+   "label": "Product",
+   "options": "Product",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "product_name",
+   "fieldtype": "Data",
+   "label": "Product Name",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "uom",
+   "fieldtype": "Link",
+   "label": "UOM",
+   "options": "UOM",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ordered_qty",
+   "fieldtype": "Float",
+   "label": "Ordered Qty",
+   "precision": "9",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "already_received_qty",
+   "fieldtype": "Float",
+   "label": "Previously Received Qty",
+   "precision": "9",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "pending_qty",
+   "fieldtype": "Float",
+   "label": "Remaining Qty",
+   "precision": "9",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "received_qty",
+   "fieldtype": "Float",
+   "label": "Quantity Received Now",
+   "precision": "9",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "rate",
+   "fieldtype": "Currency",
+   "label": "Rate",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "landed_rate",
+   "fieldtype": "Currency",
+   "label": "Landed Rate",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "label": "Amount",
+   "precision": "9",
+   "read_only": 1
+  }
+ ],
+ "field_order": [
+  "purchase_order_item",
+  "product",
+  "product_name",
+  "uom",
+  "ordered_qty",
+  "already_received_qty",
+  "pending_qty",
+  "received_qty",
+  "rate",
+  "landed_rate",
+  "amount"
+ ],
+ "permissions": []
+}

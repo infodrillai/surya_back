@@ -80,11 +80,30 @@
    "label": "Landed Rate",
    "precision": "9",
    "read_only": 1
+  },
+  {
+   "fieldname": "received_qty",
+   "fieldtype": "Float",
+   "label": "Received Qty",
+   "precision": "9",
+   "read_only": 1,
+   "in_list_view": 1,
+   "default": 0
+  },
+  {
+   "fieldname": "pending_qty",
+   "fieldtype": "Float",
+   "label": "Pending Qty",
+   "precision": "9",
+   "read_only": 1,
+   "in_list_view": 1
   }
  ],
  "field_order": [
   "product",
   "quantity",
+  "received_qty",
+  "pending_qty",
   "uom",
   "rate",
   "gst_percent",

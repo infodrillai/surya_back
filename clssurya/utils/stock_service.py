@@ -29,7 +29,7 @@ def _locked_row(product, stage):
     return frappe.db.sql(SQL_ROW, (product, stage), as_dict=True)[0]
 
 
-def _commit(row, product, stage, d_qty, d_value, price, ref_dt, ref_name, is_reversal=0):
+def _commit(row, product, stage, d_qty, d_value, price, ref_dt, ref_name, is_reversal=0, posting_datetime=None):
     stock = flt(row.stock) + d_qty
     total = flt(row.total_amount) + d_value
     if abs(stock) < EPS:
@@ -43,7 +43,7 @@ def _commit(row, product, stage, d_qty, d_value, price, ref_dt, ref_name, is_rev
             "doctype": "Stock Ledger Entry",
             "product": product,
             "stage": stage,
-            "posting_datetime": now_datetime(),
+            "posting_datetime": posting_datetime or now_datetime(),
             "qty_in": d_qty if d_qty > 0 else 0,
             "qty_out": -d_qty if d_qty < 0 else 0,
             "unit_price": price,
@@ -55,16 +55,17 @@ def _commit(row, product, stage, d_qty, d_value, price, ref_dt, ref_name, is_rev
     ).insert(ignore_permissions=True)
 
 
-def post(entries, ref_dt, ref_name):
-    """entries: [{product, stage, qty (+in / -out), unit_price (receipts only)}]"""
+def post(entries, ref_dt, ref_name, posting_datetime=None):
+    """entries: [{product, stage, qty (+in / -out), unit_price (receipts only), posting_datetime (optional)}]"""
     for e in sorted(entries, key=lambda x: (x["product"], x["stage"], x["qty"] > 0)):  # stable lock order
         qty = flt(e["qty"])
         if abs(qty) < EPS:
             continue
         row = _locked_row(e["product"], e["stage"])
+        pdt = e.get("posting_datetime") or posting_datetime
         if qty > 0:
             price = flt(e.get("unit_price"))
-            _commit(row, e["product"], e["stage"], qty, qty * price, price, ref_dt, ref_name)
+            _commit(row, e["product"], e["stage"], qty, qty * price, price, ref_dt, ref_name, posting_datetime=pdt)
         else:
             out = -qty
             if out > flt(row.stock) + EPS and not frappe.db.get_value("Product", e["product"], "allow_negative_stock"):
@@ -75,7 +76,7 @@ def post(entries, ref_dt, ref_name):
                     title=_("Insufficient stock"),
                 )
             price = flt(row.total_amount) / flt(row.stock) if flt(row.stock) > EPS else flt(row.unit_price)
-            _commit(row, e["product"], e["stage"], qty, -out * price, price, ref_dt, ref_name)
+            _commit(row, e["product"], e["stage"], qty, -out * price, price, ref_dt, ref_name, posting_datetime=pdt)
 
 
 def reverse(ref_dt, ref_name):
