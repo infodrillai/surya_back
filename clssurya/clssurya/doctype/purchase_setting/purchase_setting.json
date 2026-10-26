@@ -1,0 +1,56 @@
+{
+ "doctype": "DocType",
+ "name": "Purchase Setting",
+ "module": "Clssurya",
+ "engine": "InnoDB",
+ "custom": 0,
+ "istable": 0,
+ "issingle": 1,
+ "editable_grid": 0,
+ "track_changes": 0,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "fields": [
+  {
+   "fieldname": "max_purchase_qty",
+   "fieldtype": "Float",
+   "label": "Global Max Purchase Quantity",
+   "precision": "9",
+   "default": "0"
+  },
+  {
+   "fieldname": "require_approval",
+   "fieldtype": "Check",
+   "label": "Require Approval When Threshold Exceeded",
+   "default": "1"
+  },
+  {
+   "fieldname": "approver_role",
+   "fieldtype": "Link",
+   "label": "Approver Role",
+   "options": "Role",
+   "default": "CS Admin"
+  }
+ ],
+ "field_order": [
+  "max_purchase_qty",
+  "require_approval",
+  "approver_role"
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1
+  },
+  {
+   "role": "CS Admin",
+   "read": 1,
+   "write": 1
+  },
+  {
+   "role": "CS Store",
+   "read": 1
+  }
+ ]
+}

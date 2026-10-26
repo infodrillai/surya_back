@@ -47,53 +47,53 @@
    "options": "Sales Order Item"
   },
   {
-  "fieldname": "subtotal",
-  "fieldtype": "Currency",
-  "label": "Subtotal",
-  "precision": "9",
-  "read_only": 1
-},
-{
-  "fieldname": "discount_percent",
-  "fieldtype": "Percent",
-  "label": "Discount Percent",
-  "default": "0"
-},
-{
-  "fieldname": "discount_amount",
-  "fieldtype": "Currency",
-  "label": "Discount Amount",
-  "precision": "9",
-  "read_only": 1
-},
-{
-  "fieldname": "taxable_amount",
-  "fieldtype": "Currency",
-  "label": "Taxable Amount",
-  "precision": "9",
-  "read_only": 1
-},
-{
-  "fieldname": "gst_percent",
-  "fieldtype": "Percent",
-  "label": "GST Percent",
-  "default": "18"
-},
-{
-  "fieldname": "tax_amount",
-  "fieldtype": "Currency",
-  "label": "Tax Amount",
-  "precision": "9",
-  "read_only": 1
-},
-{
-  "fieldname": "grand_total",
-  "fieldtype": "Currency",
-  "label": "Grand Total",
-  "precision": "9",
-  "read_only": 1,
-  "in_list_view": 1
-},
+   "fieldname": "subtotal",
+   "fieldtype": "Currency",
+   "label": "Subtotal",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "discount_percent",
+   "fieldtype": "Percent",
+   "label": "Discount Percent",
+   "default": "0"
+  },
+  {
+   "fieldname": "discount_amount",
+   "fieldtype": "Currency",
+   "label": "Discount Amount",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "taxable_amount",
+   "fieldtype": "Currency",
+   "label": "Taxable Amount",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "gst_percent",
+   "fieldtype": "Percent",
+   "label": "GST Percent",
+   "default": "18"
+  },
+  {
+   "fieldname": "tax_amount",
+   "fieldtype": "Currency",
+   "label": "Tax Amount",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "grand_total",
+   "fieldtype": "Currency",
+   "label": "Grand Total",
+   "precision": "9",
+   "read_only": 1,
+   "in_list_view": 1
+  },
   {
    "fieldname": "below_cost",
    "fieldtype": "Check",
@@ -136,15 +136,31 @@
    "options": "User",
    "read_only": 1,
    "no_copy": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "packing_charges",
+   "fieldtype": "Currency",
+   "label": "Packing Charges",
+   "precision": "9"
+  },
+  {
+   "default": "0",
+   "fieldname": "transport_charges",
+   "fieldtype": "Currency",
+   "label": "Transport Charges",
+   "precision": "9"
   }
  ],
-"field_order": [
+ "field_order": [
   "customer",
   "order_date",
   "quotation",
   "status",
   "items",
   "subtotal",
+  "packing_charges",
+  "transport_charges",
   "discount_percent",
   "discount_amount",
   "taxable_amount",
@@ -157,7 +173,7 @@
   "is_completed",
   "completed_on",
   "completed_by"
-],
+ ],
  "permissions": [
   {
    "role": "System Manager",

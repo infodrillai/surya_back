@@ -37,6 +37,47 @@ class PurchaseEntry(CompletableDocument):
         self.total_received_qty = tot_received
         self.total_pending_qty = max(0.0, tot_ordered - tot_received)
 
+        # Check purchase limits and approval requirement
+        threshold_exceeded = False
+        exceeded_details = []
+
+        global_limit = 0.0
+        require_approval = 1
+        if frappe.db.exists("DocType", "Purchase Setting"):
+            try:
+                ps = frappe.get_single("Purchase Setting")
+                global_limit = flt(ps.get("max_purchase_qty"))
+                require_approval = int(ps.get("require_approval") if ps.get("require_approval") is not None else 1)
+            except Exception:
+                pass
+
+        if require_approval:
+            for r in self.items:
+                qty = flt(r.quantity)
+                prod_doc = frappe.db.get_value("Product", r.product, ["max_purchase_qty", "category", "product_name"], as_dict=True)
+                p_limit = flt(prod_doc.get("max_purchase_qty")) if prod_doc else 0.0
+                c_limit = 0.0
+                if prod_doc and prod_doc.get("category"):
+                    c_limit = flt(frappe.db.get_value("Category", prod_doc.category, "max_purchase_qty"))
+
+                limit = p_limit if p_limit > 0 else (c_limit if c_limit > 0 else global_limit)
+                if limit > 0 and qty > limit:
+                    threshold_exceeded = True
+                    pname = (prod_doc and prod_doc.product_name) or r.product
+                    exceeded_details.append(f"{pname}: ordered {qty}, limit {limit}")
+
+        self.threshold_exceeded = int(bool(threshold_exceeded))
+
+        if threshold_exceeded:
+            if getattr(self, "approval_status", None) not in ("Approved", "Rejected"):
+                self.approval_status = "Pending"
+                self.status = "Pending Approval"
+        else:
+            if not getattr(self, "approval_status", None) or self.approval_status == "Pending":
+                self.approval_status = "Not Required"
+            if not getattr(self, "status", None) or self.status == "Pending Approval":
+                self.status = "Draft"
+
         if not getattr(self, "status", None):
             self.status = "Draft"
 
@@ -49,23 +90,70 @@ class PurchaseEntry(CompletableDocument):
             if flt(r.quantity) <= 0 or flt(r.rate) < 0:
                 frappe.throw(_("Row {0}: quantity must be above 0 and rate cannot be negative.").format(r.idx))
 
+        # Re-check threshold if status was somehow modified directly
+        if self.threshold_exceeded and self.approval_status == "Pending" and self.status not in ("Pending Approval", "Draft"):
+            self.status = "Pending Approval"
+
     def stock_entries(self):
-        # Purchase Order does NOT add stock to Inventory directly.
-        # Stock is added only when Goods Receipt is confirmed.
+        # Stock is posted only when Goods Receipt is confirmed.
         return []
 
     # -----------------------------------------------------------------
-    # Whitelisted UI actions
+    # Whitelisted UI actions & Approvals
     # -----------------------------------------------------------------
     @frappe.whitelist()
     def confirm_order(self):
         self.check_permission("write")
-        if self.status != "Draft":
-            frappe.throw(_("Only Draft purchase orders can be marked as Ordered. Current status: {0}.").format(self.status))
-        self.db_set({
-            "status": "Ordered",
-        })
+        if self.threshold_exceeded and self.approval_status == "Pending":
+            frappe.throw(
+                _("Purchase Order {0} exceeds the permitted purchase quantity threshold and is Pending Approval. It must be approved before order confirmation.")
+                .format(self.name),
+                title=_("Approval Required")
+            )
+        if self.approval_status == "Rejected" or self.status == "Rejected":
+            frappe.throw(
+                _("Cannot confirm rejected Purchase Order {0}.").format(self.name),
+                title=_("Order Rejected")
+            )
+        if self.status not in ("Draft", "Approved"):
+            frappe.throw(
+                _("Only Draft or Approved purchase orders can be marked as Ordered. Current status: {0}.").format(self.status)
+            )
+
+        self.db_set({"status": "Ordered"})
         return {"name": self.name, "status": "Ordered"}
+
+    @frappe.whitelist()
+    def approve_purchase(self):
+        user_roles = set(frappe.get_roles(frappe.session.user))
+        if not (user_roles & {"CS Admin", "System Manager", "Administrator"}):
+            frappe.throw(_("Only CS Admin or System Manager can approve purchases above the threshold."), frappe.PermissionError)
+
+        self.db_set({
+            "approval_status": "Approved",
+            "approved_by": frappe.session.user,
+            "approved_on": now_datetime(),
+            "status": "Approved",
+        })
+        frappe.msgprint(_("Purchase Order {0} approved.").format(self.name))
+        return {"name": self.name, "status": "Approved", "approval_status": "Approved"}
+
+    @frappe.whitelist()
+    def reject_purchase(self, reason=None):
+        user_roles = set(frappe.get_roles(frappe.session.user))
+        if not (user_roles & {"CS Admin", "System Manager", "Administrator"}):
+            frappe.throw(_("Only CS Admin or System Manager can reject purchases."), frappe.PermissionError)
+
+        if not reason or not str(reason).strip():
+            frappe.throw(_("A reason is mandatory when rejecting a purchase order."))
+
+        self.db_set({
+            "approval_status": "Rejected",
+            "rejection_reason": str(reason).strip(),
+            "status": "Rejected",
+        })
+        frappe.msgprint(_("Purchase Order {0} rejected.").format(self.name))
+        return {"name": self.name, "status": "Rejected", "approval_status": "Rejected"}
 
     @frappe.whitelist()
     def cancel_order(self):
@@ -73,7 +161,6 @@ class PurchaseEntry(CompletableDocument):
         if self.status in ("Received", "Cancelled"):
             frappe.throw(_("Purchase Order {0} is already {1} and cannot be cancelled.").format(self.name, self.status))
 
-        # Check if any confirmed goods receipts exist
         confirmed = frappe.get_all(
             "Goods Receipt",
             filters={"purchase_order": self.name, "status": "Confirmed"},
@@ -127,6 +214,8 @@ class PurchaseEntry(CompletableDocument):
             "posting_date": self.posting_date,
             "expected_delivery_date": getattr(self, "expected_delivery_date", None),
             "status": self.status,
+            "approval_status": getattr(self, "approval_status", "Not Required"),
+            "threshold_exceeded": getattr(self, "threshold_exceeded", 0),
             "total_ordered_qty": flt(self.total_ordered_qty),
             "total_received_qty": flt(self.total_received_qty),
             "total_pending_qty": flt(self.total_pending_qty),

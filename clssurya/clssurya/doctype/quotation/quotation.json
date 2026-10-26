@@ -11,6 +11,7 @@
   "parent_quotation",
   "status",
   "items",
+  "below_cost",
   "subtotal",
   "discount_percent",
   "discount_amount",
@@ -18,12 +19,12 @@
   "gst_percent",
   "tax_amount",
   "grand_total",
-  "below_cost",
-  "previous_version",
+  "packing_charges",
+  "transport_charges",
   "cgst",
   "sgst",
   "igst"
-],
+ ],
  "fields": [
   {
    "fieldname": "customer",
@@ -66,7 +67,6 @@
    "label": "Items",
    "options": "Quotation Item"
   },
- 
   {
    "default": "0",
    "fieldname": "below_cost",
@@ -74,54 +74,89 @@
    "label": "Below Cost",
    "read_only": 1
   },
-{
-  "fieldname": "subtotal",
-  "fieldtype": "Currency",
-  "label": "Subtotal",
-  "precision": "9",
-  "read_only": 1
-},
-{
-  "fieldname": "discount_percent",
-  "fieldtype": "Percent",
-  "label": "Discount Percent",
-  "default": "0"
-},
-{
-  "fieldname": "discount_amount",
-  "fieldtype": "Currency",
-  "label": "Discount Amount",
-  "precision": "9",
-  "read_only": 1
-},
-{
-  "fieldname": "taxable_amount",
-  "fieldtype": "Currency",
-  "label": "Taxable Amount",
-  "precision": "9",
-  "read_only": 1
-},
-{
-  "fieldname": "gst_percent",
-  "fieldtype": "Percent",
-  "label": "GST Percent",
-  "default": "18"
-},
-{
-  "fieldname": "tax_amount",
-  "fieldtype": "Currency",
-  "label": "Tax Amount",
-  "precision": "9",
-  "read_only": 1
-},
-{
-  "fieldname": "grand_total",
-  "fieldtype": "Currency",
-  "label": "Grand Total",
-  "precision": "9",
-  "read_only": 1,
-  "in_list_view": 1
-}
+  {
+   "fieldname": "subtotal",
+   "fieldtype": "Currency",
+   "label": "Subtotal",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "discount_percent",
+   "fieldtype": "Percent",
+   "label": "Discount Percent",
+   "default": "0"
+  },
+  {
+   "fieldname": "discount_amount",
+   "fieldtype": "Currency",
+   "label": "Discount Amount",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "taxable_amount",
+   "fieldtype": "Currency",
+   "label": "Taxable Amount",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "gst_percent",
+   "fieldtype": "Percent",
+   "label": "GST Percent",
+   "default": "18"
+  },
+  {
+   "fieldname": "tax_amount",
+   "fieldtype": "Currency",
+   "label": "Tax Amount",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "grand_total",
+   "fieldtype": "Currency",
+   "label": "Grand Total",
+   "precision": "9",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "packing_charges",
+   "fieldtype": "Currency",
+   "label": "Packing Charges",
+   "precision": "9",
+   "default": "0"
+  },
+  {
+   "fieldname": "transport_charges",
+   "fieldtype": "Currency",
+   "label": "Transport Charges",
+   "precision": "9",
+   "default": "0"
+  },
+  {
+   "fieldname": "cgst",
+   "fieldtype": "Currency",
+   "label": "CGST",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sgst",
+   "fieldtype": "Currency",
+   "label": "SGST",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "igst",
+   "fieldtype": "Currency",
+   "label": "IGST",
+   "precision": "9",
+   "read_only": 1
+  }
  ],
  "links": [],
  "modified": "2026-10-21 16:44:51.354083",

@@ -34,14 +34,19 @@ class SalesOrder(Document):
             subtotal += r.amount
 
         discount_percent = flt(self.discount_percent or 0)
-        discount_amount = subtotal * discount_percent / 100
-        taxable_amount = max(0.0, subtotal - discount_amount)
+        discount_amount = subtotal * discount_percent / 100.0
+        packing_charges = flt(getattr(self, "packing_charges", 0) or 0)
+        transport_charges = flt(getattr(self, "transport_charges", 0) or 0)
+        taxable_item_amount = max(0.0, subtotal - discount_amount)
+        taxable_amount = taxable_item_amount + packing_charges + transport_charges
         gst_percent = flt(self.gst_percent or 0)
-        tax_amount = taxable_amount * gst_percent / 100
+        tax_amount = taxable_amount * gst_percent / 100.0
         grand_total = taxable_amount + tax_amount
 
         self.subtotal = subtotal
-        self.total_amount = subtotal           # kept for legacy compatibility
+        self.packing_charges = packing_charges
+        self.transport_charges = transport_charges
+        self.total_amount = grand_total           # kept for legacy compatibility
         self.discount_amount = discount_amount
         self.taxable_amount = taxable_amount
         self.tax_amount = tax_amount

@@ -8,7 +8,8 @@ class TestCosting(unittest.TestCase):
         t = stage_totals(0, 10 * 250, 5, 99)
         self.assertAlmostEqual(t["rejection_amount"], 125)
         self.assertAlmostEqual(t["batch_total"], 2625)
-        self.assertAlmostEqual(t["unit_cost"], 26.5152, places=4)
+        # Unit cost spread over accepted output: 2625 / (99 * 0.95) = 27.91068...
+        self.assertAlmostEqual(t["unit_cost"], 27.9107, places=4)
         self.assertAlmostEqual(stage1_wastage(10, 99, 0.1), 0.1, places=9)
 
     def test_stage2_example(self):
@@ -18,7 +19,8 @@ class TestCosting(unittest.TestCase):
         self.assertAlmostEqual(t["base"], 3051.52, places=2)
         self.assertAlmostEqual(t["rejection_amount"], 152.576, places=3)
         self.assertAlmostEqual(t["batch_total"], 3204.096, places=3)
-        self.assertAlmostEqual(t["unit_cost"], 32.04096, places=5)
+        # Unit cost spread over accepted output: 3204.096 / (100 * 0.95) = 33.7273...
+        self.assertAlmostEqual(t["unit_cost"], 33.7273, places=4)
 
     def test_gst_split(self):
         self.assertEqual(split_gst(1000, 18, "Gujarat", "gujarat"), {"cgst": 90, "sgst": 90, "igst": 0})

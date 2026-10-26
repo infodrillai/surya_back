@@ -65,7 +65,7 @@
    "precision": "9",
    "read_only": 1
   },
-    {
+  {
    "fieldname": "rejection_per_piece",
    "fieldtype": "Float",
    "label": "Rejection Per Piece",
@@ -88,7 +88,7 @@
    "in_list_view": 1,
    "read_only": 1
   },
-    {
+  {
    "fieldname": "unit_cost_without_rejection",
    "fieldtype": "Currency",
    "label": "Unit Cost Without Rejection",
@@ -118,6 +118,87 @@
    "options": "User",
    "read_only": 1,
    "no_copy": 1
+  },
+  {
+   "fieldname": "operator",
+   "fieldtype": "Data",
+   "label": "Operator / Worker"
+  },
+  {
+   "fieldname": "process",
+   "fieldtype": "Link",
+   "label": "Process / Operation",
+   "options": "Process"
+  },
+  {
+   "fieldname": "machine",
+   "fieldtype": "Link",
+   "label": "Machine",
+   "options": "CNC Machine"
+  },
+  {
+   "fieldname": "input_qty",
+   "fieldtype": "Float",
+   "label": "Input Quantity",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "accepted_qty",
+   "fieldtype": "Float",
+   "label": "Accepted Output Qty",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rejected_qty",
+   "fieldtype": "Float",
+   "label": "Rejected / Scrap Qty",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "remaining_qty",
+   "fieldtype": "Float",
+   "label": "Remaining Quantity",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "start_time",
+   "fieldtype": "Datetime",
+   "label": "Start Time"
+  },
+  {
+   "fieldname": "end_time",
+   "fieldtype": "Datetime",
+   "label": "End Time"
+  },
+  {
+   "fieldname": "duration_mins",
+   "fieldtype": "Float",
+   "label": "Duration (Mins)",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Draft\nCompleted\nCancelled",
+   "default": "Draft",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "production_code",
+   "fieldtype": "Data",
+   "label": "Production Code",
+   "in_list_view": 1
   }
  ],
  "field_order": [
@@ -128,14 +209,27 @@
   "carried_cost",
   "added_cost",
   "rejection_percent",
-  "rejection_per_piece",
   "rejection_amount",
-  "unit_cost_without_rejection",
+  "rejection_per_piece",
   "batch_total",
   "unit_cost",
+  "unit_cost_without_rejection",
   "is_completed",
   "completed_on",
-  "completed_by"
+  "completed_by",
+  "operator",
+  "process",
+  "machine",
+  "input_qty",
+  "accepted_qty",
+  "rejected_qty",
+  "remaining_qty",
+  "start_time",
+  "end_time",
+  "duration_mins",
+  "remarks",
+  "status",
+  "production_code"
  ],
  "permissions": [
   {

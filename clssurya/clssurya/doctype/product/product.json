@@ -7,7 +7,7 @@
  "istable": 0,
  "issingle": 0,
  "editable_grid": 0,
- "track_changes": 0,
+ "track_changes": 1,
  "sort_field": "modified",
  "sort_order": "DESC",
  "fields": [
@@ -74,6 +74,19 @@
    "fieldname": "allow_negative_stock",
    "fieldtype": "Check",
    "label": "Allow Negative Stock"
+  },
+  {
+   "fieldname": "max_purchase_qty",
+   "fieldtype": "Float",
+   "label": "Max Purchase Quantity",
+   "precision": "9",
+   "default": "0"
+  },
+  {
+   "fieldname": "production_code",
+   "fieldtype": "Data",
+   "label": "Production Code",
+   "in_list_view": 1
   }
  ],
  "field_order": [
@@ -86,7 +99,9 @@
   "high_stock_limit",
   "category",
   "total_steps",
-  "allow_negative_stock"
+  "allow_negative_stock",
+  "max_purchase_qty",
+  "production_code"
  ],
  "permissions": [
   {
@@ -116,5 +131,6 @@
    "read": 1
   }
  ],
- "autoname": "field:product_code"
+ "autoname": "field:product_code",
+ "allow_rename": 1
 }

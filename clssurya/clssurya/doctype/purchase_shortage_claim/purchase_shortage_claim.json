@@ -1,0 +1,247 @@
+{
+ "doctype": "DocType",
+ "name": "Purchase Shortage Claim",
+ "module": "Clssurya",
+ "engine": "InnoDB",
+ "custom": 0,
+ "istable": 0,
+ "issingle": 0,
+ "editable_grid": 0,
+ "track_changes": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "autoname": "format:PSC-{#####}",
+ "fields": [
+  {
+   "fieldname": "purchase_order",
+   "fieldtype": "Link",
+   "label": "Purchase Order",
+   "options": "Purchase Entry",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "supplier",
+   "fieldtype": "Link",
+   "label": "Supplier / Vendor",
+   "options": "Vendor",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "bill_no",
+   "fieldtype": "Data",
+   "label": "Supplier Invoice / Bill No",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "report_date",
+   "fieldtype": "Date",
+   "label": "Report Date",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "product",
+   "fieldtype": "Link",
+   "label": "Product",
+   "options": "Product",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "product_name",
+   "fieldtype": "Data",
+   "label": "Product Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "uom",
+   "fieldtype": "Link",
+   "label": "UOM",
+   "options": "UOM",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ordered_qty",
+   "fieldtype": "Float",
+   "label": "Ordered Quantity",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "invoiced_qty",
+   "fieldtype": "Float",
+   "label": "Invoiced Quantity",
+   "precision": "9",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "received_qty",
+   "fieldtype": "Float",
+   "label": "Actual Received Quantity",
+   "precision": "9",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "shortage_qty",
+   "fieldtype": "Float",
+   "label": "Shortage Quantity",
+   "precision": "9",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "rate",
+   "fieldtype": "Currency",
+   "label": "Purchase Rate",
+   "precision": "9"
+  },
+  {
+   "fieldname": "shortage_value",
+   "fieldtype": "Currency",
+   "label": "Shortage Value",
+   "precision": "9",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "tax_adjustment",
+   "fieldtype": "Currency",
+   "label": "Tax Adjustment",
+   "precision": "9"
+  },
+  {
+   "fieldname": "claimed_amount",
+   "fieldtype": "Currency",
+   "label": "Claimed Amount",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "credited_amount",
+   "fieldtype": "Currency",
+   "label": "Credited Amount",
+   "precision": "9",
+   "default": "0"
+  },
+  {
+   "fieldname": "pending_amount",
+   "fieldtype": "Currency",
+   "label": "Pending Amount",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Select",
+   "label": "Reason",
+   "options": "Transit Damage\nShort Packing\nQuality Rejection\nMissing Items\nOther",
+   "default": "Short Packing",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "responsible_person",
+   "fieldtype": "Data",
+   "label": "Responsible Person"
+  },
+  {
+   "fieldname": "supporting_documents",
+   "fieldtype": "Attach",
+   "label": "Supporting Documents"
+  },
+  {
+   "fieldname": "credit_note_no",
+   "fieldtype": "Data",
+   "label": "Supplier Credit Note No",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "credit_note_date",
+   "fieldtype": "Date",
+   "label": "Credit Note Date"
+  },
+  {
+   "fieldname": "claim_status",
+   "fieldtype": "Select",
+   "label": "Claim Status",
+   "options": "Reported\nUnder Review\nApproved\nCredit Note Received\nSettled\nRejected",
+   "default": "Reported",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "review_remarks",
+   "fieldtype": "Small Text",
+   "label": "Review Remarks"
+  },
+  {
+   "fieldname": "reviewed_by",
+   "fieldtype": "Link",
+   "label": "Reviewed By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reviewed_on",
+   "fieldtype": "Datetime",
+   "label": "Reviewed On",
+   "read_only": 1
+  }
+ ],
+ "field_order": [
+  "purchase_order",
+  "supplier",
+  "bill_no",
+  "report_date",
+  "product",
+  "product_name",
+  "uom",
+  "ordered_qty",
+  "invoiced_qty",
+  "received_qty",
+  "shortage_qty",
+  "rate",
+  "shortage_value",
+  "tax_adjustment",
+  "claimed_amount",
+  "credited_amount",
+  "pending_amount",
+  "reason",
+  "responsible_person",
+  "supporting_documents",
+  "credit_note_no",
+  "credit_note_date",
+  "claim_status",
+  "review_remarks",
+  "reviewed_by",
+  "reviewed_on"
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  },
+  {
+   "role": "CS Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  },
+  {
+   "role": "CS Store",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  },
+  {
+   "role": "CS Sales",
+   "read": 1
+  }
+ ]
+}

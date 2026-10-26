@@ -18,10 +18,18 @@
    "reqd": 1,
    "unique": 1,
    "in_list_view": 1
+  },
+  {
+   "fieldname": "max_purchase_qty",
+   "fieldtype": "Float",
+   "label": "Max Purchase Quantity",
+   "precision": "9",
+   "default": "0"
   }
  ],
  "field_order": [
-  "category_name"
+  "category_name",
+  "max_purchase_qty"
  ],
  "permissions": [
   {

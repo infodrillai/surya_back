@@ -1,0 +1,161 @@
+{
+ "doctype": "DocType",
+ "name": "CNC Machine Log",
+ "module": "Clssurya",
+ "engine": "InnoDB",
+ "custom": 0,
+ "istable": 0,
+ "issingle": 0,
+ "editable_grid": 0,
+ "track_changes": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "autoname": "format:CML-{#####}",
+ "fields": [
+  {
+   "fieldname": "machine",
+   "fieldtype": "Link",
+   "label": "Machine",
+   "options": "CNC Machine",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "production_date",
+   "fieldtype": "Date",
+   "label": "Production Date",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "production_batch",
+   "fieldtype": "Data",
+   "label": "Production Batch",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "product",
+   "fieldtype": "Link",
+   "label": "Product",
+   "options": "Product",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "product_name",
+   "fieldtype": "Data",
+   "label": "Product Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "process",
+   "fieldtype": "Link",
+   "label": "Process",
+   "options": "Process"
+  },
+  {
+   "fieldname": "operator",
+   "fieldtype": "Data",
+   "label": "Operator",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "start_time",
+   "fieldtype": "Datetime",
+   "label": "Start Time"
+  },
+  {
+   "fieldname": "end_time",
+   "fieldtype": "Datetime",
+   "label": "End Time"
+  },
+  {
+   "fieldname": "total_duration_mins",
+   "fieldtype": "Float",
+   "label": "Total Duration (Mins)",
+   "precision": "2",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "running_time_mins",
+   "fieldtype": "Float",
+   "label": "Running Time (Mins)",
+   "precision": "2"
+  },
+  {
+   "fieldname": "downtime_mins",
+   "fieldtype": "Float",
+   "label": "Downtime (Mins)",
+   "precision": "2"
+  },
+  {
+   "fieldname": "qty_processed",
+   "fieldtype": "Float",
+   "label": "Quantity Processed",
+   "precision": "2",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "accepted_qty",
+   "fieldtype": "Float",
+   "label": "Accepted Quantity",
+   "precision": "2",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "rejected_qty",
+   "fieldtype": "Float",
+   "label": "Rejected Quantity",
+   "precision": "2"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  }
+ ],
+ "field_order": [
+  "machine",
+  "production_date",
+  "production_batch",
+  "product",
+  "product_name",
+  "process",
+  "operator",
+  "start_time",
+  "end_time",
+  "total_duration_mins",
+  "running_time_mins",
+  "downtime_mins",
+  "qty_processed",
+  "accepted_qty",
+  "rejected_qty",
+  "remarks"
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  },
+  {
+   "role": "CS Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  },
+  {
+   "role": "CS Production",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  },
+  {
+   "role": "CS Store",
+   "read": 1
+  }
+ ]
+}
