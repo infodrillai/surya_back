@@ -865,9 +865,19 @@ def get_purchase_order_receipt_items(purchase_order):
 
 @frappe.whitelist()
 def get_purchase_order_receipts(purchase_order):
-    """Return all Goods Receipt records linked to a Purchase Order."""
+    """Return all Goods Receipt records linked to a Purchase Order with accurate cost and total value."""
     if not frappe.has_permission("Goods Receipt", "read"):
         raise frappe.PermissionError
+
+    po_items_by_name = {}
+    po_items_by_product = {}
+    try:
+        po = frappe.get_doc("Purchase Entry", purchase_order)
+        for line in po.items:
+            po_items_by_name[line.name] = line
+            po_items_by_product.setdefault(line.product, line)
+    except Exception:
+        pass
 
     receipts = frappe.get_all(
         "Goods Receipt",
@@ -878,21 +888,68 @@ def get_purchase_order_receipts(purchase_order):
     result = []
     for r in receipts:
         doc = frappe.get_doc("Goods Receipt", r.name)
-        r["items"] = [
-            {
+        items_list = []
+        gr_total_amount = 0.0
+        gr_total_qty = 0.0
+        for row in doc.items:
+            po_line = po_items_by_name.get(row.purchase_order_item) or po_items_by_product.get(row.product)
+            po_rate = flt(po_line.rate) if po_line else 0.0
+            po_landed_rate = flt(po_line.landed_rate) if (po_line and flt(po_line.landed_rate)) else po_rate
+
+            rcv_qty = flt(row.received_qty)
+            rate = flt(row.rate) or po_rate
+            landed_rate = flt(row.landed_rate) or po_landed_rate or rate
+            cost = landed_rate or rate
+            amount = flt(row.amount)
+            if not amount and rcv_qty:
+                amount = rcv_qty * cost
+
+            gr_total_qty += rcv_qty
+            gr_total_amount += amount
+
+            # Auto-repair row in db if it was stored with 0 cost
+            if (flt(row.rate) == 0 or flt(row.amount) == 0) and r.status == "Confirmed" and cost > 0:
+                try:
+                    frappe.db.set_value(
+                        "Goods Receipt Item",
+                        row.name,
+                        {
+                            "rate": rate,
+                            "landed_rate": landed_rate,
+                            "amount": amount,
+                            "uom": row.uom or (po_line.uom if po_line else "Unit"),
+                        },
+                        update_modified=False,
+                    )
+                except Exception:
+                    pass
+
+            items_list.append({
+                "purchase_order_item": row.purchase_order_item,
                 "product": row.product,
-                "product_name": row.product_name or frappe.db.get_value("Product", row.product, "product_name") or row.product,
-                "uom": row.uom,
-                "ordered_qty": flt(row.ordered_qty),
+                "product_name": row.product_name or frappe.db.get_value("Product", row.product, "product_name") or (po_line.product_name if po_line else row.product),
+                "uom": row.uom or (po_line.uom if po_line else frappe.db.get_value("Product", row.product, "uom")) or "Unit",
+                "ordered_qty": flt(row.ordered_qty) or (flt(po_line.quantity) if po_line else 0.0),
                 "already_received_qty": flt(row.already_received_qty),
                 "pending_qty": flt(row.pending_qty),
-                "received_qty": flt(row.received_qty),
-                "rate": flt(row.rate),
-                "landed_rate": flt(row.landed_rate),
-                "amount": flt(row.amount),
-            }
-            for row in doc.items
-        ]
+                "received_qty": rcv_qty,
+                "rate": rate,
+                "landed_rate": landed_rate,
+                "cost": cost,
+                "amount": amount,
+            })
+
+        r["items"] = items_list
+        if not flt(r.get("total_amount")) and gr_total_amount:
+            r["total_amount"] = gr_total_amount
+            if r.status == "Confirmed":
+                try:
+                    frappe.db.set_value("Goods Receipt", r.name, "total_amount", gr_total_amount, update_modified=False)
+                except Exception:
+                    pass
+        if not flt(r.get("total_qty")) and gr_total_qty:
+            r["total_qty"] = gr_total_qty
+
         result.append(r)
     return result
 
@@ -1302,11 +1359,19 @@ def get_monthly_production_report(
 ):
     """
     Monthly Product-wise Production Report with Stage-wise Totals.
-    Aggregates Stage 1, Stage 2, Stage 3, Finished Goods, Rejected Qty,
-    and Net Total Production Cost according to product and selected date range.
+    Aggregates:
+      - Product Name and Product Code
+      - Stage 1 Produced Quantity
+      - Stage 2 Produced Quantity
+      - Stage 3 Produced Quantity
+      - Total Produced Quantity (from final completed production stage without double counting)
+      - Total Dispatched/Sold Quantity (from confirmed dispatches in period)
+      - Customer Return Quantity (from confirmed customer returns in period)
+      - Remaining Available Inventory (current Finished goods stock)
+      - Historical rejection and production cost incurred in period
     """
     import datetime
-    from frappe.utils import getdate, nowdate, add_months
+    from frappe.utils import getdate, nowdate, add_months, cint, flt
 
     if not to_date:
         to_date = nowdate()
@@ -1329,6 +1394,8 @@ def get_monthly_production_report(
                     "product_code": doc.get("product_code") or p_id,
                     "production_code": doc.get("production_code") or "",
                     "uom": doc.get("uom") or "PCS",
+                    "total_steps": cint(doc.get("total_steps") or 3),
+                    "product_type": doc.get("product_type") or "Finished",
                 }
             except Exception:
                 product_cache[p_id] = {
@@ -1336,14 +1403,41 @@ def get_monthly_production_report(
                     "product_code": p_id,
                     "production_code": "",
                     "uom": "PCS",
+                    "total_steps": 3,
+                    "product_type": "Finished",
                 }
         return product_cache[p_id]
 
+    try:
+        prods = frappe.get_all(
+            "Product",
+            fields=["name", "product_name", "product_code", "production_code", "uom", "total_steps", "product_type"],
+            ignore_permissions=True,
+        )
+        for p in prods:
+            product_cache[p["name"]] = {
+                "product_name": p.get("product_name") or p["name"],
+                "product_code": p.get("product_code") or p["name"],
+                "production_code": p.get("production_code") or "",
+                "uom": p.get("uom") or "PCS",
+                "total_steps": cint(p.get("total_steps") or 3),
+                "product_type": p.get("product_type") or "Finished",
+            }
+    except Exception:
+        pass
+
     # 2. Stage Batches Query
+    # Rules 4 & 5:
+    # Do not count pending or unconfirmed production batches as completed production.
+    # Exclude cancelled batches (docstatus != 2, status != 'Cancelled').
+    # Completed batches: is_completed == 1 or status == 'Completed'.
     stage_batches = []
     for stg_num, stg_label in [(1, "Stage 1 – Insert Making"), (2, "Stage 2 – PU & Casting"), (3, "Stage 3 – CNC")]:
         dt = f"Stage {stg_num} Batch"
-        filters = {"docstatus": ["!=", 2]}
+        filters = {
+            "docstatus": ["!=", 2],
+            "status": ["!=", "Cancelled"],
+        }
         if from_str and to_str:
             filters["posting_date"] = ["between", [from_str, to_str]]
         elif from_str:
@@ -1358,14 +1452,14 @@ def get_monthly_production_report(
                 fields=[
                     "name", "product", "quantity", "posting_date", "status",
                     "is_completed", "added_cost", "carried_cost", "batch_total",
-                    "unit_cost", "rejection_percent", "rejection_amount",
-                    "production_code", "remarks"
+                    "unit_cost", "rejection_percent", "rejection_amount", "rejected_qty",
+                    "accepted_qty", "production_code", "remarks"
                 ],
                 order_by="posting_date asc",
                 ignore_permissions=True,
             )
             for r in rows:
-                if r.get("status") == "Cancelled":
+                if not (cint(r.get("is_completed")) == 1 or r.get("status") == "Completed"):
                     continue
                 r["stage_num"] = stg_num
                 r["stage_label"] = stg_label
@@ -1373,164 +1467,341 @@ def get_monthly_production_report(
         except Exception as exc:
             frappe.log_error(str(exc), f"get_monthly_production_report: {dt}")
 
-    # 3. Finished Goods in Inventory
-    fg_by_product = {}
+    # 3. Confirmed Dispatches in Date Range
+    # Rules 3 & 4:
+    # Partial dispatches must count only confirmed dispatched quantities.
+    # Cancelled dispatches must not count.
+    # d.dispatch_status == 'Dispatched' AND d.docstatus != 2
+    dispatches_by_product = {}
+    dispatch_details_by_product = {}
     try:
-        fg_rows = frappe.get_all(
+        tab_di = "`tabDispatch Item`"
+        tab_d = "`tabDispatch`"
+        d_conds = ["d.dispatch_status = 'Dispatched'", "d.docstatus != 2"]
+        d_params = {}
+        if from_str:
+            d_conds.append("d.dispatch_date >= %(from_date)s")
+            d_params["from_date"] = from_str
+        if to_str:
+            d_conds.append("d.dispatch_date <= %(to_date)s")
+            d_params["to_date"] = to_str
+
+        where_d = " AND ".join(d_conds)
+        disp_sql = f"""
+            SELECT
+                di.product,
+                di.quantity,
+                d.name as dispatch_no,
+                d.dispatch_date,
+                d.customer,
+                d.sales_order,
+                di.unit_cost
+            FROM {tab_di} di
+            JOIN {tab_d} d ON d.name = di.parent
+            WHERE {where_d}
+            ORDER BY d.dispatch_date ASC
+        """
+        disp_rows = frappe.db.sql(disp_sql, d_params, as_dict=True)
+        for dr in disp_rows:
+            p_val = dr.get("product") or ""
+            q = flt(dr.get("quantity") or 0)
+            dispatches_by_product[p_val] = dispatches_by_product.get(p_val, 0.0) + q
+            if p_val not in dispatch_details_by_product:
+                dispatch_details_by_product[p_val] = []
+            dispatch_details_by_product[p_val].append({
+                "dispatch_no": dr.get("dispatch_no") or "",
+                "dispatch_date": str(dr.get("dispatch_date") or ""),
+                "customer": dr.get("customer") or "",
+                "sales_order": dr.get("sales_order") or "",
+                "quantity": q,
+                "unit_cost": flt(dr.get("unit_cost") or 0),
+            })
+    except Exception as exc:
+        frappe.log_error(str(exc), "get_monthly_production_report: Dispatches query")
+
+    # 4. Confirmed Customer Returns in Date Range
+    returns_by_product = {}
+    return_details_by_product = {}
+    try:
+        tab_cri = "`tabCustomer Return Item`"
+        tab_cr = "`tabCustomer Return`"
+        r_conds = ["cr.return_status = 'Confirmed'", "cr.docstatus != 2"]
+        r_params = {}
+        if from_str:
+            r_conds.append("cr.return_date >= %(from_date)s")
+            r_params["from_date"] = from_str
+        if to_str:
+            r_conds.append("cr.return_date <= %(to_date)s")
+            r_params["to_date"] = to_str
+
+        where_r = " AND ".join(r_conds)
+        ret_sql = f"""
+            SELECT
+                cri.product,
+                cri.return_qty,
+                cri.condition,
+                cr.name as return_no,
+                cr.return_date,
+                cr.customer,
+                cr.dispatch,
+                cr.sales_order
+            FROM {tab_cri} cri
+            JOIN {tab_cr} cr ON cr.name = cri.parent
+            WHERE {where_r}
+            ORDER BY cr.return_date ASC
+        """
+        ret_rows = frappe.db.sql(ret_sql, r_params, as_dict=True)
+        for rr in ret_rows:
+            p_val = rr.get("product") or ""
+            rq = flt(rr.get("return_qty") or 0)
+            returns_by_product[p_val] = returns_by_product.get(p_val, 0.0) + rq
+            if p_val not in return_details_by_product:
+                return_details_by_product[p_val] = []
+            return_details_by_product[p_val].append({
+                "return_no": rr.get("return_no") or "",
+                "return_date": str(rr.get("return_date") or ""),
+                "customer": rr.get("customer") or "",
+                "dispatch": rr.get("dispatch") or "",
+                "sales_order": rr.get("sales_order") or "",
+                "return_qty": rq,
+                "condition": rr.get("condition") or "Usable",
+            })
+    except Exception as exc:
+        frappe.log_error(str(exc), "get_monthly_production_report: Customer returns query")
+
+    # 5. Current Available Inventory Stock
+    # Rule 7: Keep current available inventory as a separate column.
+    available_stock_by_product = {}
+    inventory_breakdown_by_product = {}
+    try:
+        inv_rows = frappe.get_all(
             "Inventory",
-            filters={"stage": "Finished"},
-            fields=["name", "product", "stock", "unit_price", "creation", "modified"],
+            fields=["name", "product", "stage", "stock", "unit_price"],
             ignore_permissions=True,
         )
-        for fg in fg_rows:
-            p_val = fg.get("product") or ""
-            stock = float(fg.get("stock") or 0)
-            fg_by_product[p_val] = fg_by_product.get(p_val, 0.0) + stock
-    except Exception as exc:
-        frappe.log_error(str(exc), "get_monthly_production_report: FG query")
+        for inv in inv_rows:
+            p_val = inv.get("product") or ""
+            stg = inv.get("stage") or ""
+            stk = flt(inv.get("stock") or 0)
+            if p_val not in inventory_breakdown_by_product:
+                inventory_breakdown_by_product[p_val] = {}
+            inventory_breakdown_by_product[p_val][stg] = stk
 
-    # 4. Group Batches by Product
-    groups = {}
+            if stg == "Finished":
+                available_stock_by_product[p_val] = available_stock_by_product.get(p_val, 0.0) + stk
+    except Exception as exc:
+        frappe.log_error(str(exc), "get_monthly_production_report: Inventory query")
+
+    # 6. Determine which products to show
+    # Include any product that had production batches, confirmed dispatches, or customer returns in this period.
+    # Handle products with zero available stock but non-zero historical production.
+    candidate_products = set()
     for b in stage_batches:
-        p_id = b.get("product") or ""
+        if b.get("product"):
+            candidate_products.add(b.get("product"))
+    for p_id in dispatches_by_product:
+        candidate_products.add(p_id)
+    for p_id in returns_by_product:
+        candidate_products.add(p_id)
+
+    # If filters provided, filter candidates
+    filtered_p_ids = []
+    for p_id in candidate_products:
         p_info = get_prod(p_id)
         p_code = p_info.get("product_code") or p_id
         prod_name = p_info.get("product_name") or p_id
-        uom = p_info.get("uom") or "PCS"
-        prod_c = b.get("production_code") or p_info.get("production_code") or ""
+        prod_c = p_info.get("production_code") or ""
 
-        # Filter by product or code if requested
         if product and (product.lower() not in p_id.lower() and product.lower() not in prod_name.lower()):
             continue
         if product_code and (product_code.lower() not in p_code.lower()):
             continue
         if production_code and (production_code.lower() not in prod_c.lower()):
             continue
+        filtered_p_ids.append(p_id)
 
-        raw_date = str(b.get("posting_date") or "")[:10]
+    # 7. Build product aggregated rows
+    rows = []
+    total_stage1_all = 0.0
+    total_stage2_all = 0.0
+    total_stage3_all = 0.0
+    total_produced_all = 0.0
+    total_dispatched_all = 0.0
+    total_returned_all = 0.0
+    total_stock_all = 0.0
+    total_rejected_all = 0.0
+    total_cost_all = 0.0
+
+    for p_id in filtered_p_ids:
+        p_info = get_prod(p_id)
+        p_code = p_info.get("product_code") or p_id
+        prod_name = p_info.get("product_name") or p_id
+        uom = p_info.get("uom") or "PCS"
+        total_steps = cint(p_info.get("total_steps") or 3)
+        prod_c = p_info.get("production_code") or "—"
+
+        p_batches = [b for b in stage_batches if b.get("product") == p_id]
+        p_dispatches = dispatch_details_by_product.get(p_id, [])
+        p_returns = return_details_by_product.get(p_id, [])
+
+        stage1_qty = 0.0
+        stage2_qty = 0.0
+        stage3_qty = 0.0
+        rejected_qty = 0.0
+        total_net_cost = 0.0
+        latest_date = ""
+        batch_details = []
+
+        for b in p_batches:
+            raw_date = str(b.get("posting_date") or "")[:10]
+            if raw_date and (not latest_date or raw_date > latest_date):
+                latest_date = raw_date
+
+            if b.get("production_code") and (prod_c == "—" or not prod_c):
+                prod_c = b.get("production_code")
+
+            qty = flt(b.get("quantity") or 0)
+            rej_pct = flt(b.get("rejection_percent") or 0)
+            rej_amt = flt(b.get("rejected_qty") or 0)
+            if rej_amt <= 0 and rej_pct > 0:
+                rej_amt = round(qty * rej_pct / 100.0, 4)
+
+            b_total = flt(b.get("batch_total") or 0)
+            carried = flt(b.get("carried_cost") or 0)
+            added = flt(b.get("added_cost") or 0)
+
+            stg = b["stage_num"]
+            if stg == 1:
+                stage1_qty += qty
+                net_cost = b_total if b_total > 0 else added
+            elif stg == 2:
+                stage2_qty += qty
+                if carried > 0 and b_total >= carried:
+                    net_cost = b_total - carried
+                else:
+                    net_cost = added if added > 0 else b_total
+            else:
+                stage3_qty += qty
+                if carried > 0 and b_total >= carried:
+                    net_cost = b_total - carried
+                else:
+                    net_cost = added if added > 0 else b_total
+
+            rejected_qty += rej_amt
+            total_net_cost += net_cost
+
+            batch_details.append({
+                "production_date": raw_date,
+                "batch_no": b.get("name") or "",
+                "product_code": p_code,
+                "production_code": b.get("production_code") or prod_c,
+                "product_name": prod_name,
+                "stage": b.get("stage_label") or f"Stage {stg}",
+                "produced_qty": qty,
+                "rejected_qty": rej_amt,
+                "batch_status": b.get("status") or "Completed",
+                "production_cost": b_total,
+                "unit_cost": flt(b.get("unit_cost") or 0),
+            })
+
+        # Rule 8:
+        # Do not add the three stage quantities together as total finished production
+        # if they represent the same material moving through successive stages.
+        # Calculate total finished production from the final completed production stage.
+        if total_steps == 1:
+            total_produced = stage1_qty
+        elif total_steps == 2:
+            total_produced = stage2_qty
+        else: # total_steps == 3 or default
+            total_produced = stage3_qty
+
+        dispatched_qty = dispatches_by_product.get(p_id, 0.0)
+        return_qty = returns_by_product.get(p_id, 0.0)
+
+        # Available Stock: Finished stock in inventory (or final stage if no finished)
+        avail_stock = available_stock_by_product.get(p_id, 0.0)
+        if avail_stock == 0.0:
+            final_stage_key = f"Stage {total_steps}"
+            avail_stock = inventory_breakdown_by_product.get(p_id, {}).get(final_stage_key, 0.0)
+
+        # Date for presentation
+        if not latest_date:
+            if p_dispatches:
+                latest_date = p_dispatches[-1].get("dispatch_date", "")
+            elif p_returns:
+                latest_date = p_returns[-1].get("return_date", "")
+            else:
+                latest_date = to_str or from_str
+
         m_num = 1
         m_year = 2026
         month_name = "October 2026"
-        if raw_date:
+        if latest_date:
             try:
-                d_obj = datetime.datetime.strptime(raw_date, "%Y-%m-%d")
+                d_obj = datetime.datetime.strptime(latest_date[:10], "%Y-%m-%d")
                 m_num = d_obj.month
                 m_year = d_obj.year
                 month_name = d_obj.strftime("%B %Y")
             except Exception:
                 pass
 
-        group_key = p_id
+        total_stage1_all += stage1_qty
+        total_stage2_all += stage2_qty
+        total_stage3_all += stage3_qty
+        total_produced_all += total_produced
+        total_dispatched_all += dispatched_qty
+        total_returned_all += return_qty
+        total_stock_all += avail_stock
+        total_rejected_all += rejected_qty
+        total_cost_all += total_net_cost
 
-        if group_key not in groups:
-            groups[group_key] = {
-                "month_no": m_num,
-                "month": month_name,
-                "year": m_year,
-                "production_date": raw_date,
-                "product": p_id,
-                "product_code": p_code,
-                "production_code": prod_c or "—",
-                "product_name": prod_name,
-                "uom": uom,
-                "stage1_qty": 0.0,
-                "stage2_qty": 0.0,
-                "stage3_qty": 0.0,
-                "finished_goods_qty": 0.0,
-                "rejected_qty": 0.0,
-                "total_production_cost": 0.0,
-                "batch_count": 0,
-                "insert_input": 0.0,
-                "insert_output": 0.0,
-                "casting_input": 0.0,
-                "casting_output": 0.0,
-                "cnc_input": 0.0,
-                "cnc_output": 0.0,
-                "total_accepted_final": 0.0,
-                "batches": [],
-            }
-
-        g = groups[group_key]
-        if raw_date and raw_date > g["production_date"]:
-            g["production_date"] = raw_date
-        if prod_c and (not g["production_code"] or g["production_code"] == "—"):
-            g["production_code"] = prod_c
-
-        qty = float(b.get("quantity") or 0)
-        rej_pct = float(b.get("rejection_percent") or 0)
-        rej_amt = float(b.get("rejected_qty") or 0)
-        if rej_amt <= 0 and rej_pct > 0:
-            rej_amt = round(qty * rej_pct / 100, 4)
-
-        b_total = float(b.get("batch_total") or 0)
-        carried = float(b.get("carried_cost") or 0)
-        added = float(b.get("added_cost") or 0)
-
-        # Net production cost newly incurred by this batch
-        if b["stage_num"] == 1:
-            net_cost = b_total if b_total > 0 else added
-            g["stage1_qty"] += qty
-            g["insert_input"] += qty
-            g["insert_output"] += (qty - rej_amt)
-        elif b["stage_num"] == 2:
-            if carried > 0 and b_total >= carried:
-                net_cost = b_total - carried
-            else:
-                net_cost = added if added > 0 else b_total
-            g["stage2_qty"] += qty
-            g["casting_input"] += qty
-            g["casting_output"] += (qty - rej_amt)
-        else:
-            if carried > 0 and b_total >= carried:
-                net_cost = b_total - carried
-            else:
-                net_cost = added if added > 0 else b_total
-            g["stage3_qty"] += qty
-            g["cnc_input"] += qty
-            g["cnc_output"] += (qty - rej_amt)
-
-        g["rejected_qty"] += rej_amt
-        g["total_production_cost"] += net_cost
-        g["batch_count"] += 1
-
-        g["batches"].append({
-            "production_date": raw_date,
-            "batch_no": b.get("name") or "",
+        rows.append({
+            "product": p_id,
             "product_code": p_code,
-            "production_code": prod_c,
             "product_name": prod_name,
-            "stage": b.get("stage_label") or f"Stage {b['stage_num']}",
-            "produced_qty": qty,
-            "rejected_qty": rej_amt,
-            "batch_status": b.get("status") or "Completed",
-            "production_cost": b_total,
-            "unit_cost": float(b.get("unit_cost") or 0),
+            "production_code": prod_c,
+            "uom": uom,
+            "total_steps": total_steps,
+            "production_date": latest_date,
+            "month_no": m_num,
+            "month": month_name,
+            "year": m_year,
+            "stage1_qty": round(stage1_qty, 2),
+            "stage2_qty": round(stage2_qty, 2),
+            "stage3_qty": round(stage3_qty, 2),
+            "total_produced_qty": round(total_produced, 2),
+            "finished_goods_qty": round(total_produced, 2),
+            "dispatched_qty": round(dispatched_qty, 2),
+            "total_dispatched_qty": round(dispatched_qty, 2),
+            "return_qty": round(return_qty, 2),
+            "customer_return_qty": round(return_qty, 2),
+            "available_stock": round(avail_stock, 2),
+            "rejected_qty": round(rejected_qty, 2),
+            "total_production_cost": round(total_net_cost, 2),
+            "batches": batch_details,
+            "dispatches": p_dispatches,
+            "returns": p_returns,
+            "inventory_breakdown": inventory_breakdown_by_product.get(p_id, {}),
         })
 
-    # 5. Populate Finished Goods
-    for p_id, g in groups.items():
-        fg_qty = fg_by_product.get(p_id, 0.0) or fg_by_product.get(g["product_code"], 0.0)
-        if fg_qty > 0:
-            g["finished_goods_qty"] = fg_qty
-        elif g["stage3_qty"] > 0:
-            g["finished_goods_qty"] = max(0.0, g["stage3_qty"] - g["rejected_qty"])
-
-        g["total_accepted_final"] = g["finished_goods_qty"]
-        g["stage1_qty"] = round(g["stage1_qty"], 2)
-        g["stage2_qty"] = round(g["stage2_qty"], 2)
-        g["stage3_qty"] = round(g["stage3_qty"], 2)
-        g["finished_goods_qty"] = round(g["finished_goods_qty"], 2)
-        g["rejected_qty"] = round(g["rejected_qty"], 2)
-        g["total_production_cost"] = round(g["total_production_cost"], 2)
-
-    rows = list(groups.values())
     rows.sort(key=lambda x: (x["production_date"], x["product_name"]), reverse=True)
-
     return {
+        "success": True,
         "from_date": from_str,
         "to_date": to_str,
         "rows": rows,
         "total_count": len(rows),
+        "summary": {
+            "stage1_total": round(total_stage1_all, 2),
+            "stage2_total": round(total_stage2_all, 2),
+            "stage3_total": round(total_stage3_all, 2),
+            "total_produced": round(total_produced_all, 2),
+            "total_dispatched": round(total_dispatched_all, 2),
+            "total_returned": round(total_returned_all, 2),
+            "total_available_stock": round(total_stock_all, 2),
+            "total_rejected": round(total_rejected_all, 2),
+            "total_production_cost": round(total_cost_all, 2),
+        },
     }
 
 
@@ -2131,3 +2402,136 @@ def get_datewise_production_inventory(from_date=None, to_date=None, product=None
 
     all_records.sort(key=lambda x: (x["production_date"], x["batch_no"]), reverse=True)
     return all_records
+
+
+@frappe.whitelist()
+def get_pending_order_analysis(from_date=None, to_date=None, vendor=None, product=None, include_completed=0):
+    """
+    Pending Order Analysis Report:
+    Compares ordered quantities in Purchase Entry records against actual received quantities from confirmed Goods Receipts.
+    Hides fully received items by default (include_completed=0).
+    Dual independent filters: Vendor Wise, Product Wise, plus optional Date Range.
+    """
+    # 1. Fetch confirmed goods receipt quantities per purchase order item row
+    gr_receipts = frappe.db.sql("""
+        SELECT 
+            gri.purchase_order_item,
+            SUM(gri.received_qty) as total_received
+        FROM `tabGoods Receipt Item` gri
+        JOIN `tabGoods Receipt` gr ON gr.name = gri.parent
+        WHERE gr.status = 'Confirmed' AND gr.docstatus != 2
+        GROUP BY gri.purchase_order_item
+    """, as_dict=True)
+    rcv_map = {r.purchase_order_item: flt(r.total_received) for r in gr_receipts}
+
+    conditions = ["pe.status != 'Cancelled'", "pe.docstatus != 2"]
+    values = {}
+
+    if from_date:
+        conditions.append("pe.posting_date >= %(from_date)s")
+        values["from_date"] = from_date
+    if to_date:
+        conditions.append("pe.posting_date <= %(to_date)s")
+        values["to_date"] = to_date
+    if vendor and str(vendor).strip() not in ("All", "ALL", "__ALL__", "", "undefined", "null"):
+        conditions.append("pe.vendor = %(vendor)s")
+        values["vendor"] = vendor
+    if product and str(product).strip() not in ("All", "ALL", "__ALL__", "", "undefined", "null"):
+        conditions.append("pei.product = %(product)s")
+        values["product"] = product
+
+    where_clause = " AND ".join(conditions)
+
+    query = f"""
+        SELECT 
+            pe.name as purchase_entry_id,
+            pe.posting_date as purchase_date,
+            pe.vendor,
+            v.vendor_name,
+            pe.status as order_status,
+            pei.name as item_row_name,
+            pei.product as product_code,
+            p.product_name,
+            pei.uom,
+            pei.quantity as ordered_qty,
+            pei.received_qty as pei_received_qty,
+            pei.pending_qty as pei_pending_qty,
+            pei.rate as unit_rate,
+            pei.landed_rate
+        FROM `tabPurchase Entry` pe
+        JOIN `tabPurchase Entry Item` pei ON pei.parent = pe.name
+        LEFT JOIN `tabVendor` v ON v.name = pe.vendor
+        LEFT JOIN `tabProduct` p ON p.name = pei.product
+        WHERE {where_clause}
+        ORDER BY pe.posting_date DESC, pe.name DESC
+    """
+    raw_rows = frappe.db.sql(query, values, as_dict=True)
+
+    rows = []
+    tot_ordered = 0.0
+    tot_received = 0.0
+    tot_pending = 0.0
+    tot_pending_val = 0.0
+
+    inc_comp = 1 if include_completed in ("1", 1, "true", "True", True) else 0
+
+    for r in raw_rows:
+        ordered = flt(r.ordered_qty)
+        actual_rcv = rcv_map.get(r.item_row_name, flt(r.pei_received_qty))
+        pending = max(0.0, ordered - actual_rcv)
+
+        if not inc_comp and pending <= 0.000001:
+            continue
+
+        unit_rate = flt(r.unit_rate)
+        landed_rate = flt(r.landed_rate) if flt(r.landed_rate) else unit_rate
+        pending_val = round(pending * unit_rate, 2)
+
+        vendor_display = r.vendor_name or r.vendor or "Unknown Vendor"
+        prod_display = r.product_name or r.product_code or ""
+
+        rows.append({
+            "purchase_entry_id": r.purchase_entry_id,
+            "purchase_date": str(r.purchase_date) if r.purchase_date else "",
+            "vendor_name": vendor_display,
+            "vendor_id": r.vendor,
+            "product_code": r.product_code,
+            "product_name": prod_display,
+            "uom": r.uom or "",
+            "ordered_qty": ordered,
+            "received_qty": actual_rcv,
+            "pending_qty": pending,
+            "unit_rate": unit_rate,
+            "landed_rate": landed_rate,
+            "order_status": r.order_status or "Draft",
+            "pending_value": pending_val,
+        })
+
+        tot_ordered += ordered
+        tot_received += actual_rcv
+        tot_pending += pending
+        tot_pending_val += pending_val
+
+    # Vendors & products for filters
+    vendor_list = frappe.db.sql("SELECT name, vendor_name FROM `tabVendor` ORDER BY vendor_name ASC", as_dict=True)
+    product_list = frappe.db.sql("SELECT name, product_name FROM `tabProduct` ORDER BY product_name ASC", as_dict=True)
+
+    vendors = [{"value": "ALL", "label": "All Vendors"}] + [
+        {"value": v.name, "label": v.vendor_name or v.name} for v in vendor_list
+    ]
+    products = [{"value": "ALL", "label": "All Products"}] + [
+        {"value": p.name, "label": f"{p.name} - {p.product_name}" if p.product_name else p.name} for p in product_list
+    ]
+
+    return {
+        "rows": rows,
+        "summary": {
+            "total_ordered_qty": round(tot_ordered, 4),
+            "total_received_qty": round(tot_received, 4),
+            "total_pending_qty": round(tot_pending, 4),
+            "total_pending_value": round(tot_pending_val, 2),
+            "total_rows": len(rows),
+        },
+        "vendors": vendors,
+        "products": products,
+    }

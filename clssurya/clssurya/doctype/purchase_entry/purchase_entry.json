@@ -65,6 +65,11 @@
    "precision": "9"
   },
   {
+   "fieldname": "gst_percent",
+   "fieldtype": "Percent",
+   "label": "GST %"
+  },
+  {
    "fieldname": "grand_total",
    "fieldtype": "Currency",
    "label": "Grand Total",

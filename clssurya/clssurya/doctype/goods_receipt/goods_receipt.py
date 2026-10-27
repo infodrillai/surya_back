@@ -100,6 +100,23 @@ class GoodsReceipt(Document):
             item.pending_qty = max(0.0, remaining - rcv_qty)
             item.amount = rcv_qty * flt(po_line.rate)
 
+            # Persist child item fields to the database
+            frappe.db.set_value(
+                "Goods Receipt Item",
+                item.name,
+                {
+                    "product_name": item.product_name,
+                    "uom": item.uom,
+                    "rate": item.rate,
+                    "landed_rate": item.landed_rate,
+                    "ordered_qty": item.ordered_qty,
+                    "already_received_qty": item.already_received_qty,
+                    "pending_qty": item.pending_qty,
+                    "amount": item.amount,
+                },
+                update_modified=False,
+            )
+
         # 4. Post stock entries via stock_service
         stock_entries = [
             {
