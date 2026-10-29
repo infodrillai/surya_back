@@ -125,7 +125,7 @@
    "label": "Operator / Worker"
   },
   {
-   "fieldname": "process",
+   "fieldname": "operation",
    "fieldtype": "Link",
    "label": "Process / Operation",
    "options": "Process"
@@ -199,6 +199,12 @@
    "fieldtype": "Data",
    "label": "Production Code",
    "in_list_view": 1
+  },
+  {
+   "fieldname": "size",
+   "fieldtype": "Float",
+   "label": "Size",
+   "precision": "9"
   }
  ],
  "field_order": [
@@ -218,7 +224,7 @@
   "completed_on",
   "completed_by",
   "operator",
-  "process",
+  "operation",
   "machine",
   "input_qty",
   "accepted_qty",
@@ -229,7 +235,8 @@
   "duration_mins",
   "remarks",
   "status",
-  "production_code"
+  "production_code",
+  "size"
  ],
  "permissions": [
   {

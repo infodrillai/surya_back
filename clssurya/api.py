@@ -63,7 +63,7 @@ def get_masters(only=None):
 
 
 @frappe.whitelist()
-def get_stage_rows(product, qty, stage):
+def get_stage_rows(product, qty, stage, size=None):
     """BOM rows for a batch: per-unit utilization, total utilization, amount, per-unit amount."""
     if not frappe.has_permission(f"Stage {cint(stage)} Batch", "read"):
         raise frappe.PermissionError
@@ -71,6 +71,9 @@ def get_stage_rows(product, qty, stage):
     bom = frappe.get_doc("BOM", product)
     if cint(bom.total_steps) < stage:
         frappe.throw(_("{0} has only {1} step(s) in its BOM.").format(product, bom.total_steps))
+
+    prod_doc = frappe.db.get_value("Product", product, ["product_type", "finished_good_type", "band_type", "belt_length", "hole"], as_dict=True)
+    is_belt = bool(prod_doc and prod_doc.product_type == "Finished" and prod_doc.finished_good_type == "Belt")
 
     def row(**kw):
         per, price = flt(kw["per_unit_utilization"]), flt(kw["unit_price"])
@@ -80,19 +83,64 @@ def get_stage_rows(product, qty, stage):
 
     out = {"items": [], "charges": [], "wastage_product": None}
     if stage > 1:
-        prev = "Stage 1" if stage == 2 else "Stage 2"
-        out["items"].append(row(is_carried_in=1, process=None, product=product, per_unit_utilization=1,
-                                unit_price=inventory_price(product, prev)))
+        if is_belt and stage == 2:
+            # Belt Stage 2 does not carry in the Belt product; it consumes Roll from Stage 1
+            pass
+        else:
+            prev = "Stage 1" if stage == 2 else "Stage 2"
+            out["items"].append(row(is_carried_in=1, process=None, product=product, per_unit_utilization=1,
+                                    unit_price=inventory_price(product, prev), source_stage=prev))
     if stage == 1:
         for r in bom.stage1_items:
             out["wastage_product"] = out["wastage_product"] or r.wastage_product
             out["items"].append(row(is_carried_in=0, process=r.process, product=r.product,
-                                    per_unit_utilization=r.per_unit_utilization, unit_price=inventory_price(r.product, "Raw")))
+                                    per_unit_utilization=r.per_unit_utilization, unit_price=inventory_price(r.product, "Raw"),
+                                    source_stage="Raw"))
     elif stage == 2:
-        for r in bom.stage2_items:
-            out["items"].append(row(is_carried_in=0, process=r.process, product=r.product,
-                                    per_unit_utilization=r.per_unit_utilization, unit_price=inventory_price(r.product, "Raw")))
+        if is_belt:
+            if size is not None and flt(size) > 0:
+                s_val = flt(size)
+            else:
+                length_mm = flt(prod_doc.belt_length) if (prod_doc and prod_doc.belt_length) else 0.0
+                band = (prod_doc.band_type or "") if prod_doc else ""
+                if "Grommed" in band:
+                    if 1080 <= length_mm <= 1120:
+                        s_val = 1.2
+                    elif 1460 <= length_mm <= 1510:
+                        s_val = 1.5
+                    elif length_mm > 0:
+                        s_val = round(length_mm / 1000.0, 3)
+                    else:
+                        s_val = 1.0
+                else:  # Lower / Upper
+                    s_val = round(length_mm / 1000.0, 3) if length_mm > 0 else 1.0
+            out["default_size"] = s_val
+            for r in bom.stage2_items:
+                ratio_val = flt(r.ratio) if flt(r.ratio) > 0 else 1.0
+                per_u = s_val / ratio_val
+                roll_price = inventory_price(r.product, "Stage 1") or inventory_price(r.product, "Raw")
+                out["items"].append(row(is_carried_in=0, process=r.process, product=r.product,
+                                        per_unit_utilization=per_u, unit_price=roll_price,
+                                        ratio=ratio_val, source_stage="Stage 1"))
+        else:
+            for r in bom.stage2_items:
+                out["items"].append(row(is_carried_in=0, process=r.process, product=r.product,
+                                        per_unit_utilization=r.per_unit_utilization, unit_price=inventory_price(r.product, "Raw"),
+                                        source_stage="Raw"))
     else:
+        if is_belt:
+            hole_count = flt(prod_doc.hole) if (prod_doc and prod_doc.hole) else 0.0
+            for r in (bom.get("stage3_items") or []):
+                ratio_val = flt(r.ratio) or 1.0
+                calc_type = r.calculation_type or "Quantity"
+                if calc_type == "Hole":
+                    per_u = hole_count * ratio_val
+                else:
+                    per_u = ratio_val
+                comp_price = inventory_price(r.product, "Raw")
+                out["items"].append(row(is_carried_in=0, process=r.process, product=r.product,
+                                        per_unit_utilization=per_u, unit_price=comp_price,
+                                        ratio=ratio_val, calculation_type=calc_type, source_stage="Raw"))
         out["charges"] = [{"charge": c.charge, "per_unit_price": c.per_unit_price, "amount": flt(c.per_unit_price) * qty}
                           for c in bom.stage3_charges]
     return out
@@ -109,8 +157,12 @@ def get_stock_by_stage(product=None):
 @frappe.whitelist()
 def get_finished_cost():
     """Finished stock and production cost per unit. Open to Sales (they cannot read the ledger)."""
-    rows = frappe.get_all("Inventory", filters={"stage": "Finished"}, fields=["product", "stock", "unit_price"])
-    return {r.product: {"stock": r.stock, "unit_price": r.unit_price} for r in rows}
+    rows = frappe.get_all("Inventory", filters={"stage": ["in", ["Finished", "Stage 3"]]}, fields=["product", "stage", "stock", "unit_price"])
+    out = {}
+    for r in rows:
+        if r.product not in out or r.stage == "Finished":
+            out[r.product] = {"stock": r.stock, "unit_price": r.unit_price}
+    return out
 
 
 @frappe.whitelist()
@@ -198,6 +250,147 @@ def get_inventory_bifurcation(product=None):
             continue
 
         bom = frappe.get_doc("BOM", item.product)
+
+        p_info = frappe.db.get_value("Product", item.product, ["product_type", "finished_good_type", "hole", "belt_length"], as_dict=True)
+        if p_info and p_info.product_type == "Finished" and p_info.finished_good_type == "Belt":
+            # 1. Roll material item from stage 2
+            roll_items = []
+            roll_unit = 0.0
+            for r in bom.stage2_items:
+                r_rate = inventory_price(r.product, "Stage 1") or default_prices.get(r.product, 0)
+                ratio_val = flt(r.ratio) or 1.0
+                len_val = flt(p_info.belt_length) or 1.0
+                u = (len_val / ratio_val) * r_rate
+                roll_items.append({
+                    "name": raw_labels.get(r.product, f"Roll ({r.product})"),
+                    "code": r.product,
+                    "category": "Material",
+                    "per_unit": u,
+                    "color": "#6366f1",
+                })
+                roll_unit += u
+
+            rejection_pct = 5.0
+            latest_s2b = frappe.db.get_value("Stage 2 Batch", {"product": item.product, "is_completed": 1}, "rejection_percent")
+            if latest_s2b is not None:
+                rejection_pct = flt(latest_s2b)
+
+            rejection_unit = roll_unit * (rejection_pct / 100.0)
+            s2_total_unit = roll_unit + rejection_unit
+
+            if item.stage == "Stage 2":
+                scale = (unit_price / s2_total_unit) if (s2_total_unit and abs(unit_price - s2_total_unit) > 0.001) else 1.0
+                comps = []
+                for it in roll_items:
+                    pu = round(it["per_unit"] * scale, 2)
+                    comps.append({**it, "per_unit": pu, "total": round(pu * stock, 2), "percent": round((pu / unit_price * 100), 1) if unit_price else 0})
+                rej_pu = round(rejection_unit * scale, 2)
+                comps.append({
+                    "name": f"Rejection ({rejection_pct:.0f}%)",
+                    "code": "REJECTION",
+                    "category": "Rejection",
+                    "per_unit": rej_pu,
+                    "total": round(rej_pu * stock, 2),
+                    "percent": round((rej_pu / unit_price * 100), 1) if unit_price else 0,
+                    "color": "#ef4444",
+                })
+                mat_tot = sum(c["total"] for c in comps if c["category"] == "Material")
+                rej_tot = sum(c["total"] for c in comps if c["category"] == "Rejection")
+                results[key] = {
+                    "product": item.product,
+                    "stage": item.stage,
+                    "stock": stock,
+                    "unit_price": unit_price,
+                    "total_amount": total_amount,
+                    "cost_heads": {
+                        "material": {"name": "Raw Materials", "amount": mat_tot, "unit_rate": round(mat_tot / stock, 2) if stock else 0, "percent": round(mat_tot / total_amount * 100, 1) if total_amount else 0, "color": "#0284c7"},
+                        "rejection": {"name": "Rejection Cost", "amount": rej_tot, "unit_rate": round(rej_tot / stock, 2) if stock else 0, "percent": round(rej_tot / total_amount * 100, 1) if total_amount else 0, "color": "#ef4444"},
+                        "labour": {"name": "Labour Expense", "amount": 0.0, "unit_rate": 0.0, "percent": 0.0, "color": "#f59e0b"},
+                        "electricity": {"name": "Electricity", "amount": 0.0, "unit_rate": 0.0, "percent": 0.0, "color": "#eab308"},
+                        "cnc": {"name": "CNC Repair & Tooling", "amount": 0.0, "unit_rate": 0.0, "percent": 0.0, "color": "#10b981"},
+                        "admin": {"name": "Admin Expense", "amount": 0.0, "unit_rate": 0.0, "percent": 0.0, "color": "#64748b"},
+                    },
+                    "components": comps,
+                }
+                continue
+
+            # Stage 3 or Finished Stage for Belt
+            comp_items = []
+            comp_unit = 0.0
+            hole_cnt = flt(p_info.hole) if p_info.hole else 0.0
+            for r in (bom.get("stage3_items") or []):
+                rate = inventory_price(r.product, "Raw") or default_prices.get(r.product, 0)
+                calc_type = r.calculation_type or "Quantity"
+                ratio_val = flt(r.ratio) or 1.0
+                u = (hole_cnt * ratio_val * rate) if calc_type == "Hole" else (ratio_val * rate)
+                comp_items.append({
+                    "name": raw_labels.get(r.product, r.product),
+                    "code": r.product,
+                    "category": "Material",
+                    "per_unit": u,
+                    "color": "#0ea5e9",
+                })
+                comp_unit += u
+
+            s3_charges = []
+            s3_charge_unit = 0.0
+            for c in bom.stage3_charges:
+                pu = flt(c.per_unit_price)
+                s3_charges.append({
+                    "name": c.charge,
+                    "code": c.charge,
+                    "category": "Charge",
+                    "per_unit": pu,
+                    "color": charge_colors.get(c.charge, "#10b981"),
+                })
+                s3_charge_unit += pu
+
+            full_unit = roll_unit + comp_unit + s3_charge_unit + rejection_unit
+            scale = (unit_price / full_unit) if (full_unit and abs(unit_price - full_unit) > 0.001) else 1.0
+
+            comps = []
+            for it in [*roll_items, *comp_items]:
+                pu = round(it["per_unit"] * scale, 2)
+                comps.append({**it, "per_unit": pu, "total": round(pu * stock, 2), "percent": round((pu / unit_price * 100), 1) if unit_price else 0})
+
+            rej_pu = round(rejection_unit * scale, 2)
+            comps.append({
+                "name": f"Rejection ({rejection_pct:.0f}%)",
+                "code": "REJECTION",
+                "category": "Rejection",
+                "per_unit": rej_pu,
+                "total": round(rej_pu * stock, 2),
+                "percent": round((rej_pu / unit_price * 100), 1) if unit_price else 0,
+                "color": "#ef4444",
+            })
+
+            for it in s3_charges:
+                pu = round(it["per_unit"] * scale, 2)
+                comps.append({**it, "per_unit": pu, "total": round(pu * stock, 2), "percent": round((pu / unit_price * 100), 1) if unit_price else 0})
+
+            mat_tot = sum(c["total"] for c in comps if c["category"] == "Material")
+            rej_tot = sum(c["total"] for c in comps if c["category"] == "Rejection")
+            lab_tot = sum(c["total"] for c in comps if "Labour" in c["name"])
+            elec_tot = sum(c["total"] for c in comps if "Electricity" in c["name"])
+            admin_tot = sum(c["total"] for c in comps if "Admin" in c["name"])
+
+            results[key] = {
+                "product": item.product,
+                "stage": item.stage,
+                "stock": stock,
+                "unit_price": unit_price,
+                "total_amount": total_amount,
+                "cost_heads": {
+                    "material": {"name": "Raw Materials", "amount": mat_tot, "unit_rate": round(mat_tot / stock, 2) if stock else 0, "percent": round(mat_tot / total_amount * 100, 1) if total_amount else 0, "color": "#0284c7"},
+                    "rejection": {"name": "Rejection Cost", "amount": rej_tot, "unit_rate": round(rej_tot / stock, 2) if stock else 0, "percent": round(rej_tot / total_amount * 100, 1) if total_amount else 0, "color": "#ef4444"},
+                    "labour": {"name": "Labour Expense", "amount": lab_tot, "unit_rate": round(lab_tot / stock, 2) if stock else 0, "percent": round(lab_tot / total_amount * 100, 1) if total_amount else 0, "color": "#f59e0b"},
+                    "electricity": {"name": "Electricity", "amount": elec_tot, "unit_rate": round(elec_tot / stock, 2) if stock else 0, "percent": round(elec_tot / total_amount * 100, 1) if total_amount else 0, "color": "#eab308"},
+                    "cnc": {"name": "CNC Repair & Tooling", "amount": 0.0, "unit_rate": 0.0, "percent": 0.0, "color": "#10b981"},
+                    "admin": {"name": "Admin Expense", "amount": admin_tot, "unit_rate": round(admin_tot / stock, 2) if stock else 0, "percent": round(admin_tot / total_amount * 100, 1) if total_amount else 0, "color": "#64748b"},
+                },
+                "components": comps,
+            }
+            continue
 
         # Stage 1 material items
         s1_items = []
@@ -1242,7 +1435,7 @@ def get_production_report(from_date=None, to_date=None, product=None, stage=None
             conds.append("operator LIKE %(operator)s")
             params["operator"] = f"%{operator}%"
         if process:
-            conds.append("process LIKE %(process)s")
+            conds.append("operation LIKE %(process)s")
             params["process"] = f"%{process}%"
 
         where_clause = " WHERE " + " AND ".join(conds)
@@ -1261,7 +1454,7 @@ def get_production_report(from_date=None, to_date=None, product=None, stage=None
                 completed_by,
                 status,
                 operator,
-                process,
+                operation,
                 machine,
                 input_qty,
                 accepted_qty,
@@ -1300,7 +1493,8 @@ def get_production_report(from_date=None, to_date=None, product=None, stage=None
                 "stage_step": cfg["step"],
                 "total_steps": total_steps,
                 "is_final_stage": is_final_stage,
-                "process_name": r.process or "",
+                "process_name": r.operation or "",
+                "operation": r.operation or "",
                 "operator": r.operator or (r.completed_by or ""),
                 "machine": r.machine or "",
                 "input_qty": round(in_qty, 3),
@@ -1830,7 +2024,7 @@ def get_cnc_machine_report(from_date=None, to_date=None, machine=None, product=N
         conds.append("operator LIKE %(operator)s")
         params["operator"] = f"%{operator}%"
     if process:
-        conds.append("process LIKE %(process)s")
+        conds.append("operation LIKE %(process)s")
         params["process"] = f"%{process}%"
 
     where_sql = " WHERE " + " AND ".join(conds)
@@ -1842,7 +2036,8 @@ def get_cnc_machine_report(from_date=None, to_date=None, machine=None, product=N
             production_batch,
             product,
             product_name,
-            process,
+            operation,
+            operation AS process,
             operator,
             start_time,
             end_time,
@@ -1900,6 +2095,7 @@ def get_cnc_machine_report(from_date=None, to_date=None, machine=None, product=N
         "to_date": to_date,
         "logs": logs,
         "machine_summary": summary_rows,
+        "summary": summary_rows,
         "total_count": len(logs),
     }
 
@@ -2138,7 +2334,7 @@ def get_machine_time_report(from_date=None, to_date=None, machine=None, product=
     logs = frappe.db.sql(f"""
         SELECT 
             name, machine, production_date, production_batch, product, product_name,
-            process, operator, start_time, end_time, total_duration_mins, running_time_mins,
+            operation, operator, start_time, end_time, total_duration_mins, running_time_mins,
             downtime_mins, qty_processed, accepted_qty, rejected_qty, remarks
         FROM `tabCNC Machine Log`
         {where_sql}
@@ -2146,7 +2342,7 @@ def get_machine_time_report(from_date=None, to_date=None, machine=None, product=
     """, params, as_dict=True)
 
     for l in logs:
-        m_type = frappe.db.get_value("CNC Machine", l.machine, "machine_type") or l.process or ""
+        m_type = frappe.db.get_value("CNC Machine", l.machine, "machine_type") or l.operation or ""
         p_info = get_p_info(l.product)
         
         # Calculate running seconds
@@ -2228,7 +2424,7 @@ def get_machine_time_report(from_date=None, to_date=None, machine=None, product=
                 p_info = get_p_info(b.product)
                 m_type = ""
                 if b.get("machine"):
-                    m_type = frappe.db.get_value("CNC Machine", b.machine, "machine_type") or b.get("process") or ""
+                    m_type = frappe.db.get_value("CNC Machine", b.machine, "machine_type") or b.get("operation") or b.get("process") or ""
 
                 diff = 0
                 if b.get("start_time") and b.get("end_time"):

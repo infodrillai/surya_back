@@ -87,6 +87,42 @@
    "fieldtype": "Data",
    "label": "Production Code",
    "in_list_view": 1
+  },
+  {
+   "fieldname": "finished_good_type",
+   "fieldtype": "Select",
+   "label": "Finished Good Type",
+   "options": "PU\nBelt",
+   "default": "PU",
+   "depends_on": "eval:doc.product_type=='Finished'"
+  },
+  {
+   "fieldname": "band_type",
+   "fieldtype": "Select",
+   "label": "Band Type",
+   "options": "Grommed\nGrommed with Aluminium Patti\nLower\nUpper",
+   "depends_on": "eval:doc.product_type=='Finished' && doc.finished_good_type=='Belt'"
+  },
+  {
+   "fieldname": "belt_length",
+   "fieldtype": "Float",
+   "label": "Belt Length",
+   "precision": "9",
+   "depends_on": "eval:doc.product_type=='Finished' && doc.finished_good_type=='Belt'"
+  },
+  {
+   "fieldname": "belt_width",
+   "fieldtype": "Float",
+   "label": "Belt Width",
+   "precision": "9",
+   "depends_on": "eval:doc.product_type=='Finished' && doc.finished_good_type=='Belt'"
+  },
+  {
+   "fieldname": "hole",
+   "fieldtype": "Float",
+   "label": "Hole",
+   "precision": "9",
+   "depends_on": "eval:doc.product_type=='Finished' && doc.finished_good_type=='Belt'"
   }
  ],
  "field_order": [
@@ -101,7 +137,12 @@
   "total_steps",
   "allow_negative_stock",
   "max_purchase_qty",
-  "production_code"
+  "production_code",
+  "finished_good_type",
+  "band_type",
+  "belt_length",
+  "belt_width",
+  "hole"
  ],
  "permissions": [
   {

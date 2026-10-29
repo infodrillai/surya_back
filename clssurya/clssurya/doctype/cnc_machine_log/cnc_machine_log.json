@@ -47,9 +47,9 @@
    "read_only": 1
   },
   {
-   "fieldname": "process",
+   "fieldname": "operation",
    "fieldtype": "Link",
-   "label": "Process",
+   "label": "Process / Operation",
    "options": "Process"
   },
   {
@@ -119,7 +119,7 @@
   "production_batch",
   "product",
   "product_name",
-  "process",
+  "operation",
   "operator",
   "start_time",
   "end_time",

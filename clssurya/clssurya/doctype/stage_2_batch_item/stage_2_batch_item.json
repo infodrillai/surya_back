@@ -77,6 +77,26 @@
    "label": "Actual Amount",
    "precision": "9",
    "read_only": 1
+  },
+  {
+   "fieldname": "ratio",
+   "fieldtype": "Float",
+   "label": "Ratio",
+   "precision": "9"
+  },
+  {
+   "fieldname": "source_stage",
+   "fieldtype": "Select",
+   "label": "Source Stage",
+   "options": "Raw\nStage 1\nStage 2",
+   "default": "Raw"
+  },
+  {
+   "fieldname": "calculation_type",
+   "fieldtype": "Select",
+   "label": "Calculation Type",
+   "options": "Hole\nQuantity",
+   "default": "Quantity"
   }
  ],
  "field_order": [
@@ -89,7 +109,10 @@
   "unit_price",
   "amount",
   "per_unit_amount",
-  "actual_amount"
+  "actual_amount",
+  "ratio",
+  "source_stage",
+  "calculation_type"
  ],
  "permissions": []
 }

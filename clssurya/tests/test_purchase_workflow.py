@@ -1,8 +1,8 @@
 import os
-os.chdir('/home/rutva_javiya/frappe-bench/sites')
 import frappe
-frappe.init('clssurya.local')
-frappe.connect()
+if not frappe.db:
+    frappe.init(site='surya.local', sites_path=os.path.abspath('.'))
+    frappe.connect()
 
 from frappe.utils import flt, nowdate
 from clssurya.utils import stock_service

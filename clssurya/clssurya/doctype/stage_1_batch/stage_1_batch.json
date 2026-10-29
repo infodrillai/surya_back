@@ -137,7 +137,7 @@
    "label": "Operator / Worker"
   },
   {
-   "fieldname": "process",
+   "fieldname": "operation",
    "fieldtype": "Link",
    "label": "Process / Operation",
    "options": "Process"
@@ -232,7 +232,7 @@
   "completed_on",
   "completed_by",
   "operator",
-  "process",
+  "operation",
   "machine",
   "input_qty",
   "accepted_qty",

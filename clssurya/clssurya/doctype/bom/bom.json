@@ -44,6 +44,12 @@
    "fieldtype": "Table",
    "label": "Stage 3 Charges",
    "options": "BOM Stage 3 Charge"
+  },
+  {
+   "fieldname": "stage3_items",
+   "fieldtype": "Table",
+   "label": "Stage 3 Component Items",
+   "options": "BOM Stage 3 Item"
   }
  ],
  "field_order": [
@@ -51,7 +57,8 @@
   "total_steps",
   "stage1_items",
   "stage2_items",
-  "stage3_charges"
+  "stage3_charges",
+  "stage3_items"
  ],
  "permissions": [
   {

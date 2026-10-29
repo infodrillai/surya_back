@@ -31,12 +31,20 @@
    "label": "Per Unit Utilization",
    "precision": "9",
    "in_list_view": 1
+  },
+  {
+   "fieldname": "ratio",
+   "fieldtype": "Float",
+   "label": "Ratio",
+   "precision": "9",
+   "in_list_view": 1
   }
  ],
  "field_order": [
   "process",
   "product",
-  "per_unit_utilization"
+  "per_unit_utilization",
+  "ratio"
  ],
  "permissions": []
 }
