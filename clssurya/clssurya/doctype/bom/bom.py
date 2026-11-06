@@ -13,14 +13,12 @@ class BOM(Document):
             frappe.throw(_("A BOM is only for Semi / Finished products."))
 
         self.total_steps = cint(p.total_steps)
-        is_belt = (p.product_type == "Finished" and p.finished_good_type == "Belt")
+        is_belt = (p.get("finished_good_type") == "Belt")
 
         if is_belt:
-            # Belt products start at Stage 2 (consuming Roll products created independently in Stage 1)
-            if self.stage1_items:
-                frappe.throw(_("Stage 1 rows are not applicable for Belt products. Rolls are created separately."))
-            if self.total_steps >= 2 and not self.stage2_items:
-                frappe.throw(_("Stage 2 Roll consumption rows are required for Belt products."))
+            for r in self.stage1_items:
+                if flt(r.per_unit_utilization) <= 0:
+                    frappe.throw(_("Utilization for {0} must be greater than 0.").format(r.product))
             for r in self.stage2_items:
                 ptype = frappe.db.get_value("Product", r.product, "product_type")
                 if ptype not in ("Semi", "Raw"):
