@@ -26,7 +26,8 @@
   "age_150_180",
   "age_180_above",
   "company_outstandings",
-  "active"
+  "active",
+  "sales_person"
  ],
  "fields": [
   {
@@ -148,6 +149,13 @@
    "fieldtype": "Check",
    "in_list_view": 1,
    "label": "Active"
+  },
+  {
+   "fieldname": "sales_person",
+   "fieldtype": "Link",
+   "label": "Sales Person",
+   "options": "Sales Person",
+   "in_list_view": 1
   }
  ],
  "module": "Clssurya",

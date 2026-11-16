@@ -150,6 +150,13 @@
    "fieldtype": "Currency",
    "label": "Transport Charges",
    "precision": "9"
+  },
+  {
+   "fieldname": "sales_person",
+   "fieldtype": "Link",
+   "label": "Sales Person",
+   "options": "Sales Person",
+   "in_list_view": 1
   }
  ],
  "field_order": [
@@ -172,7 +179,8 @@
   "approved_on",
   "is_completed",
   "completed_on",
-  "completed_by"
+  "completed_by",
+  "sales_person"
  ],
  "permissions": [
   {

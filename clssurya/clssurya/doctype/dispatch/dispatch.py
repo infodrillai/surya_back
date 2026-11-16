@@ -96,6 +96,51 @@ class Dispatch(CompletableDocument):
                 or 0
             )
             if qty > available + EPS:
+                # For belt products, auto-sync any completed final-stage Belt Batches into Finished inventory
+                is_belt = (
+                    frappe.db.get_value("Product", r.product, "finished_good_type") == "Belt"
+                    or "BELT" in str(r.product).upper()
+                )
+                if is_belt and frappe.db.exists("DocType", "Belt Batch"):
+                    b_rows = frappe.db.sql(
+                        """
+                        SELECT name, quantity, unit_cost, batch_total, process_step
+                        FROM `tabBelt Batch`
+                        WHERE product=%s AND is_completed=1 AND docstatus!=2
+                        ORDER BY process_step DESC
+                        """,
+                        (r.product,),
+                        as_dict=True,
+                    )
+                    if b_rows:
+                        max_step = max(b["process_step"] for b in b_rows)
+                        top_batches = [b for b in b_rows if b["process_step"] == max_step]
+                        total_top_qty = sum(flt(b["quantity"]) for b in top_batches)
+                        posted_qty = flt((frappe.db.sql(
+                            """
+                            SELECT SUM(qty_in) FROM `tabStock Ledger Entry`
+                            WHERE product=%s AND stage='Finished' AND reference_doctype='Belt Batch'
+                            """,
+                            (r.product,)
+                        ) or [[0]])[0][0] or 0)
+                        if total_top_qty > posted_qty + EPS:
+                            for b in top_batches:
+                                u_cost = flt(b.get("unit_cost") or 0)
+                                stock_post(
+                                    [{"product": r.product, "stage": "Finished", "qty": flt(b["quantity"]), "unit_price": u_cost}],
+                                    "Belt Batch",
+                                    b["name"]
+                                )
+                            available = flt(
+                                frappe.db.get_value(
+                                    "Inventory",
+                                    {"product": r.product, "stage": "Finished"},
+                                    "stock",
+                                )
+                                or 0
+                            )
+
+            if qty > available + EPS:
                 pname = (
                     frappe.db.get_value("Product", r.product, "product_name") or r.product
                 )

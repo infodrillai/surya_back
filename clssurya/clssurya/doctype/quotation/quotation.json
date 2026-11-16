@@ -23,7 +23,8 @@
   "transport_charges",
   "cgst",
   "sgst",
-  "igst"
+  "igst",
+  "sales_person"
  ],
  "fields": [
   {
@@ -156,6 +157,13 @@
    "label": "IGST",
    "precision": "9",
    "read_only": 1
+  },
+  {
+   "fieldname": "sales_person",
+   "fieldtype": "Link",
+   "label": "Sales Person",
+   "options": "Sales Person",
+   "in_list_view": 1
   }
  ],
  "links": [],

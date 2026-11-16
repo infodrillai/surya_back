@@ -1,9 +1,10 @@
 import frappe
 from frappe import _
-from frappe.utils import cint, flt
+from frappe.utils import cint, flt, nowdate, getdate
 
 from clssurya.constants import COMPLETABLE, MASTERS
-from clssurya.utils.base import is_admin
+from clssurya.utils.base import is_admin, require_admin
+from clssurya.utils.sales_person import get_current_sales_person, is_sales_person
 from clssurya.utils.stock_service import inventory_price
 from clssurya.utils.versions import get_versions
 
@@ -25,7 +26,7 @@ def _readable_masters():
     return [dt for dt in MASTERS if frappe.has_permission(dt, "read")]
 
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
 def get_csrf_token():
     return frappe.sessions.get_csrf_token()
 
@@ -33,16 +34,19 @@ def get_csrf_token():
 @frappe.whitelist(allow_guest=True)
 def me():
     user = frappe.session.user
+    sp = get_current_sales_person(user)
     return {
         "user": user,
         "full_name": frappe.utils.get_fullname(user),
         "roles": frappe.get_roles(user),
         "is_admin": is_admin(user),
+        "is_sales_person": is_sales_person(user),
+        "sales_person": sp,
         "company_state": frappe.conf.get("company_state") or "Gujarat",
     }
 
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
 def get_master_versions():
     versions = get_versions()
     return {dt: int(versions.get(dt, 0)) for dt in _readable_masters()}
@@ -154,7 +158,7 @@ def get_stock_by_stage(product=None):
     return frappe.get_all("Inventory", filters=filters, fields=["product", "stage", "stock", "total_amount", "unit_price"])
 
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
 def get_finished_cost():
     """Finished stock and production cost per unit. Open to Sales (they cannot read the ledger)."""
     rows = frappe.get_all("Inventory", filters={"stage": ["in", ["Finished", "Stage 3"]]}, fields=["product", "stage", "stock", "unit_price"])
@@ -1661,6 +1665,46 @@ def get_monthly_production_report(
         except Exception as exc:
             frappe.log_error(str(exc), f"get_monthly_production_report: {dt}")
 
+    
+    # 2b. Belt Batches Query
+    if frappe.db.exists("DocType", "Belt Batch"):
+        bb_filters = {"docstatus": ["!=", 2]}
+        if from_str and to_str:
+            bb_filters["posting_date"] = ["between", [from_str, to_str]]
+        elif from_str:
+            bb_filters["posting_date"] = [">=", from_str]
+        elif to_str:
+            bb_filters["posting_date"] = ["<=", to_str]
+
+        try:
+            bb_rows = frappe.get_all(
+                "Belt Batch",
+                filters=bb_filters,
+                fields=[
+                    "name", "product", "quantity", "posting_date", "process_step",
+                    "stage", "is_completed", "unit_cost", "batch_total",
+                    "remarks", "creation"
+                ],
+                order_by="posting_date asc",
+                ignore_permissions=True,
+            )
+            for r in bb_rows:
+                if not r.get("posting_date") and r.get("creation"):
+                    r["posting_date"] = str(r["creation"])[:10]
+                step = cint(r.get("process_step")) or cint("".join(filter(str.isdigit, str(r.get("stage") or ""))) or 1) or 1
+                r["stage_num"] = step
+                belt_labels = {
+                    1: "Stage 1 – Roll Creation",
+                    2: "Stage 2 – Roll Sizing",
+                    3: "Stage 3 – Roll Finished",
+                    4: "Stage 4 – Charges"
+                }
+                r["stage_label"] = belt_labels.get(step, f"Stage {step}")
+                r["is_belt"] = True
+                stage_batches.append(r)
+        except Exception as exc:
+            frappe.log_error(str(exc), "get_monthly_production_report: Belt Batch")
+
     # 3. Confirmed Dispatches in Date Range
     # Rules 3 & 4:
     # Partial dispatches must count only confirmed dispatched quantities.
@@ -1841,6 +1885,7 @@ def get_monthly_production_report(
         stage1_qty = 0.0
         stage2_qty = 0.0
         stage3_qty = 0.0
+        stage4_qty = 0.0
         rejected_qty = 0.0
         total_net_cost = 0.0
         latest_date = ""
@@ -1874,6 +1919,9 @@ def get_monthly_production_report(
                     net_cost = b_total - carried
                 else:
                     net_cost = added if added > 0 else b_total
+            elif stg == 4:
+                stage4_qty += qty
+                net_cost = b_total if b_total > 0 else added
             else:
                 stage3_qty += qty
                 if carried > 0 and b_total >= carried:
@@ -1902,11 +1950,14 @@ def get_monthly_production_report(
         # Do not add the three stage quantities together as total finished production
         # if they represent the same material moving through successive stages.
         # Calculate total finished production from the final completed production stage.
-        if total_steps == 1:
+        is_belt_prod = any(b.get("is_belt") for b in p_batches)
+        if is_belt_prod:
+            total_produced = stage4_qty if stage4_qty > 0 else (stage3_qty if stage3_qty > 0 else (stage2_qty if stage2_qty > 0 else stage1_qty))
+        elif total_steps == 1:
             total_produced = stage1_qty
         elif total_steps == 2:
             total_produced = stage2_qty
-        else: # total_steps == 3 or default
+        else:
             total_produced = stage3_qty
 
         dispatched_qty = dispatches_by_product.get(p_id, 0.0)
@@ -1917,6 +1968,21 @@ def get_monthly_production_report(
         if avail_stock == 0.0:
             final_stage_key = f"Stage {total_steps}"
             avail_stock = inventory_breakdown_by_product.get(p_id, {}).get(final_stage_key, 0.0)
+
+        # Belt products: Inventory Page stores "Finished" stock in browser localStorage,
+        # NOT in tabInventory DB. So compute belt available stock directly from Belt Batch data.
+        # Available = highest stage batches qty - dispatched + returned
+        if avail_stock == 0.0 and is_belt_prod and p_batches:
+            # Find the maximum stage number that exists for this product
+            belt_max_stage = max((b["stage_num"] for b in p_batches), default=0)
+            belt_top_qty = sum(
+                flt(b.get("quantity") or 0)
+                for b in p_batches
+                if b["stage_num"] == belt_max_stage
+            )
+            dispatched_for_avail = dispatches_by_product.get(p_id, 0.0)
+            returned_for_avail = returns_by_product.get(p_id, 0.0)
+            avail_stock = max(0.0, belt_top_qty - dispatched_for_avail + returned_for_avail)
 
         # Date for presentation
         if not latest_date:
@@ -1962,15 +2028,17 @@ def get_monthly_production_report(
             "year": m_year,
             "stage1_qty": round(stage1_qty, 2),
             "stage2_qty": round(stage2_qty, 2),
-            "stage3_qty": round(stage3_qty, 2),
+            "stage3_qty": round(stage3_qty, 3),
+            "stage4_qty": round(stage4_qty, 3),
+            "is_belt": is_belt_prod,
             "total_produced_qty": round(total_produced, 2),
-            "finished_goods_qty": round(total_produced, 2),
-            "dispatched_qty": round(dispatched_qty, 2),
-            "total_dispatched_qty": round(dispatched_qty, 2),
-            "return_qty": round(return_qty, 2),
-            "customer_return_qty": round(return_qty, 2),
-            "available_stock": round(avail_stock, 2),
-            "rejected_qty": round(rejected_qty, 2),
+            "finished_goods_qty": round(total_produced, 3),
+            "dispatched_qty": round(dispatched_qty, 3),
+            "total_dispatched_qty": round(dispatched_qty, 3),
+            "return_qty": round(return_qty, 3),
+            "customer_return_qty": round(return_qty, 3),
+            "available_stock": round(avail_stock, 3),
+            "rejected_qty": round(rejected_qty, 3),
             "total_production_cost": round(total_net_cost, 2),
             "batches": batch_details,
             "dispatches": p_dispatches,
@@ -1988,11 +2056,12 @@ def get_monthly_production_report(
         "summary": {
             "stage1_total": round(total_stage1_all, 2),
             "stage2_total": round(total_stage2_all, 2),
-            "stage3_total": round(total_stage3_all, 2),
+            "stage3_total": round(total_stage3_all, 3),
+            "stage4_total": round(sum(r.get("stage4_qty", 0) for r in rows), 3),
             "total_produced": round(total_produced_all, 2),
             "total_dispatched": round(total_dispatched_all, 2),
             "total_returned": round(total_returned_all, 2),
-            "total_available_stock": round(total_stock_all, 2),
+            "total_available_stock": round(total_stock_all, 3),
             "total_rejected": round(total_rejected_all, 2),
             "total_production_cost": round(total_cost_all, 2),
         },
@@ -2527,6 +2596,10 @@ def get_datewise_production_inventory(from_date=None, to_date=None, product=None
         {"doctype": "Stage 1 Batch", "stage": "Stage 1", "label": "Stage 1 (Insert Making)"},
         {"doctype": "Stage 2 Batch", "stage": "Stage 2", "label": "Stage 2 (PU & Casting)"},
         {"doctype": "Stage 3 Batch", "stage": "Stage 3", "label": "Stage 3 (CNC)"},
+        {"doctype": "Belt Batch", "stage": "Stage 1", "label": "Stage 1 · Roll Creation", "step": 1},
+        {"doctype": "Belt Batch", "stage": "Stage 2", "label": "Stage 2 · Roll Sizing", "step": 2},
+        {"doctype": "Belt Batch", "stage": "Stage 3", "label": "Stage 3 · Roll Finished", "step": 3},
+        {"doctype": "Belt Batch", "stage": "Stage 4", "label": "Stage 4 · Charges", "step": 4},
     ]
 
     all_records = []
@@ -2534,10 +2607,14 @@ def get_datewise_production_inventory(from_date=None, to_date=None, product=None
 
     for cfg in stage_configs:
         dt = cfg["doctype"]
+        if not frappe.db.exists("DocType", dt):
+            continue
         if stage and stage != "All" and stage not in (cfg["stage"], cfg["label"]):
             continue
 
-        conds = ["posting_date >= %(from_date)s AND posting_date <= %(to_date)s"]
+        conds = ["COALESCE(posting_date, DATE(creation)) >= %(from_date)s AND COALESCE(posting_date, DATE(creation)) <= %(to_date)s"]
+        if dt == "Belt Batch" and cfg.get("step"):
+            conds.append("(process_step = " + str(cfg["step"]) + " OR stage = 'Stage " + str(cfg["step"]) + "')")
         params = {"from_date": from_date, "to_date": to_date}
 
         if product:
@@ -2730,4 +2807,1262 @@ def get_pending_order_analysis(from_date=None, to_date=None, vendor=None, produc
         },
         "vendors": vendors,
         "products": products,
+    }
+
+
+# ============================================================================
+# USER MANAGEMENT & SALES PERSON DASHBOARD APIS
+# ============================================================================
+
+@frappe.whitelist()
+def get_sales_person_dashboard():
+    """Returns dashboard metrics for the logged-in Sales Person or filtered scope."""
+    user = frappe.session.user
+    sp = get_current_sales_person(user)
+    admin = is_admin(user)
+
+    sp_filter = {}
+    if not admin and sp:
+        sp_filter["sales_person"] = sp.name
+    elif not admin and not sp:
+        return {
+            "total_customers": 0,
+            "total_quotations": 0,
+            "pending_quotations": 0,
+            "accepted_quotations": 0,
+            "total_sales_orders": 0,
+            "pending_orders": 0,
+            "completed_orders": 0,
+            "monthly_sales_amount": 0,
+            "recent_quotations": [],
+            "recent_orders": [],
+            "monthly_chart": [],
+            "pending_approvals": [],
+        }
+
+    # Customers
+    cust_filter = sp_filter.copy()
+    total_customers = frappe.db.count("Customer", cust_filter) if cust_filter else frappe.db.count("Customer")
+
+    # Quotations
+    q_all = frappe.get_all(
+        "Quotation",
+        filters=sp_filter,
+        fields=["name", "customer", "quotation_date", "grand_total", "status", "version"],
+        order_by="quotation_date desc, creation desc",
+        limit=50,
+    )
+    total_quotations = len(q_all)
+    pending_quotations = sum(1 for q in q_all if q.get("status") in ("Draft", "Sent", "Pending Approval"))
+    accepted_quotations = sum(1 for q in q_all if q.get("status") in ("Accepted", "Approved"))
+
+    # Sales Orders
+    so_all = frappe.get_all(
+        "Sales Order",
+        filters=sp_filter,
+        fields=["name", "customer", "order_date", "grand_total", "status", "quotation"],
+        order_by="order_date desc, creation desc",
+        limit=50,
+    )
+    total_sales_orders = len(so_all)
+    pending_orders = sum(1 for o in so_all if o.get("status") in ("Draft", "Pending Approval"))
+    completed_orders = sum(1 for o in so_all if o.get("status") in ("Completed", "Partially Dispatched"))
+
+    # Monthly sales: Current month orders
+    from frappe.utils import nowdate, getdate
+    cur_month = str(nowdate())[:7]
+    monthly_sales_amount = sum(
+        flt(o.get("grand_total") or 0) for o in so_all if str(o.get("order_date") or "")[:7] == cur_month
+    )
+
+    # Monthly chart data (last 6 months)
+    monthly_chart = []
+    import datetime
+    today = getdate(nowdate())
+    for i in range(5, -1, -1):
+        d = today - datetime.timedelta(days=i * 30)
+        m_str = d.strftime("%Y-%m")
+        m_label = d.strftime("%b %y")
+        m_quotes = sum(flt(q.get("grand_total") or 0) for q in q_all if str(q.get("quotation_date") or "")[:7] == m_str)
+        m_orders = sum(flt(o.get("grand_total") or 0) for o in so_all if str(o.get("order_date") or "")[:7] == m_str)
+        monthly_chart.append({
+            "month": m_label,
+            "quotations_amount": m_quotes,
+            "orders_amount": m_orders,
+        })
+
+    # Pending approvals queue
+    pending_approvals = []
+    for q in q_all:
+        if q.get("status") in ("Draft", "Sent", "Pending Approval"):
+            pending_approvals.append({
+                "type": "Quotation",
+                "name": q.name,
+                "customer": q.customer,
+                "date": q.quotation_date,
+                "amount": flt(q.grand_total or 0),
+                "status": q.status or "Draft",
+            })
+    for o in so_all:
+        if o.get("status") in ("Pending Approval", "Draft"):
+            pending_approvals.append({
+                "type": "Sales Order",
+                "name": o.name,
+                "customer": o.customer,
+                "date": o.order_date,
+                "amount": flt(o.grand_total or 0),
+                "status": o.status or "Draft",
+            })
+
+    return {
+        "total_customers": total_customers,
+        "total_quotations": total_quotations,
+        "pending_quotations": pending_quotations,
+        "accepted_quotations": accepted_quotations,
+        "total_sales_orders": total_sales_orders,
+        "pending_orders": pending_orders,
+        "completed_orders": completed_orders,
+        "monthly_sales_amount": monthly_sales_amount,
+        "recent_quotations": q_all[:5],
+        "recent_orders": so_all[:5],
+        "monthly_chart": monthly_chart,
+        "pending_approvals": pending_approvals[:10],
+    }
+
+
+@frappe.whitelist()
+def get_user_management_list():
+    """Administrator-only: fetches all users, their roles, and linked Sales Person records."""
+    require_admin()
+    users = frappe.get_all(
+        "User",
+        filters={"name": ["not in", ["Guest"]]},
+        fields=["name", "email", "first_name", "last_name", "full_name", "enabled", "creation", "last_login"],
+        order_by="creation desc",
+    )
+
+    # Fetch all sales persons
+    sp_list = frappe.get_all(
+        "Sales Person",
+        fields=["name", "sales_person_name", "employee_id", "email", "assigned_user", "status", "mobile_no"],
+    )
+    sp_by_user = {sp.assigned_user: sp for sp in sp_list if sp.assigned_user}
+    sp_by_email = {sp.email: sp for sp in sp_list if sp.email}
+
+    result = []
+    for u in users:
+        roles = frappe.get_roles(u.name)
+        sp = sp_by_user.get(u.name) or sp_by_email.get(u.email)
+        is_sp = "Sales Person" in roles or "CS Sales" in roles
+        is_adm = u.name == "Administrator" or "System Manager" in roles or "CS Admin" in roles
+        result.append({
+            "name": u.name,
+            "email": u.email,
+            "first_name": u.first_name,
+            "last_name": u.last_name,
+            "full_name": u.full_name or u.first_name or u.email,
+            "enabled": cint(u.enabled),
+            "roles": roles,
+            "is_admin": is_adm,
+            "is_sales_person": is_sp,
+            "sales_person_name": sp.get("sales_person_name") if sp else None,
+            "sales_person_id": sp.get("name") if sp else None,
+            "sales_person_status": sp.get("status") if sp else None,
+            "employee_id": sp.get("employee_id") if sp else None,
+            "mobile_no": sp.get("mobile_no") if sp else None,
+        })
+
+    return result
+
+
+@frappe.whitelist()
+def create_user_and_sales_person(email, first_name, password, role="Sales Person", last_name=None, employee_id=None, mobile_no=None, address=None):
+    """Administrator-only: creates user, sets password, assigns role, and creates or links Sales Person record."""
+    require_admin()
+    if not email or not password or not first_name:
+        frappe.throw(_("Email, password, and first name are required."))
+
+    email = email.strip().lower()
+    first_name = first_name.strip()
+    last_name = (last_name or "").strip()
+
+    # Create or update Frappe User
+    if frappe.db.exists("User", email):
+        user_doc = frappe.get_doc("User", email)
+        user_doc.enabled = 1
+        user_doc.first_name = first_name
+        if last_name:
+            user_doc.last_name = last_name
+        user_doc.save(ignore_permissions=True)
+    else:
+        user_doc = frappe.get_doc({
+            "doctype": "User",
+            "email": email,
+            "first_name": first_name,
+            "last_name": last_name,
+            "send_welcome_email": 0,
+            "enabled": 1,
+        })
+        user_doc.insert(ignore_permissions=True)
+
+    # Set password securely
+    from frappe.utils.password import update_password
+    update_password(email, password)
+
+    # Assign roles
+    if role == "Administrator":
+        user_doc.add_roles("System Manager", "CS Admin")
+    else:
+        user_doc.add_roles("Sales Person", "CS Sales")
+
+    # If Sales Person, create or link Sales Person record
+    if role == "Sales Person":
+        sp_name = f"{first_name} {last_name}".strip() if last_name else first_name
+        if sp_name.strip().lower() == "sales person":
+            sp_name = f"{sp_name} 1" 
+
+        # Check if Sales Person already exists by assigned_user, email, name, or employee_id
+        existing_sp = (
+            frappe.db.get_value("Sales Person", {"assigned_user": email}, "name")
+            or frappe.db.get_value("Sales Person", {"email": email}, "name")
+            or frappe.db.get_value("Sales Person", {"sales_person_name": sp_name}, "name")
+            or (frappe.db.get_value("Sales Person", {"employee_id": employee_id}, "name") if employee_id else None)
+        )
+
+        if existing_sp:
+            sp_doc = frappe.get_doc("Sales Person", existing_sp)
+            sp_doc.assigned_user = email
+            sp_doc.email = email
+            sp_doc.status = "Active"
+            if mobile_no:
+                sp_doc.mobile_no = mobile_no
+            if address:
+                sp_doc.address = address
+            if employee_id:
+                sp_doc.employee_id = employee_id
+            sp_doc.save(ignore_permissions=True)
+        else:
+            emp_id = employee_id or f"EMP-{frappe.generate_hash(length=4).upper()}"
+            sp_doc = frappe.get_doc({
+                "doctype": "Sales Person",
+                "sales_person_name": sp_name,
+                "employee_id": emp_id,
+                "email": email,
+                "mobile_no": mobile_no or "",
+                "address": address or "",
+                "assigned_user": email,
+                "status": "Active",
+                "joining_date": nowdate(),
+            })
+            sp_doc.insert(ignore_permissions=True)
+
+    frappe.db.commit()
+    return {"message": f"User {email} and Sales Person profile set up successfully"}
+
+@frappe.whitelist()
+def update_user_status(user, enabled):
+    """Administrator-only: enable or disable a user and sync Sales Person status."""
+    require_admin()
+    if user == "Administrator":
+        frappe.throw(_("Cannot disable Administrator account."))
+
+    val = cint(enabled)
+    frappe.db.set_value("User", user, "enabled", val)
+
+    # If linked to a Sales Person, update Sales Person status
+    sp_name = frappe.db.get_value("Sales Person", {"assigned_user": user}, "name")
+    if sp_name:
+        frappe.db.set_value("Sales Person", sp_name, "status", "Active" if val else "Inactive")
+
+    return {"message": f"User status updated to {'Active' if val else 'Inactive'}"}
+
+
+@frappe.whitelist()
+def reset_user_password(user, new_password):
+    """Administrator-only: resets a user's password securely."""
+    require_admin()
+    if not user or not new_password:
+        frappe.throw(_("User and new password are required."))
+
+    from frappe.utils.password import update_password
+    update_password(user, new_password)
+    return {"message": f"Password for {user} updated successfully"}
+
+
+@frappe.whitelist()
+def delete_user_and_sales_person(user):
+    """Administrator-only: deletes a user and any linked Sales Person record."""
+    require_admin()
+    if user in ("Administrator", "surya@gmail.com"):
+        frappe.throw(_("Cannot delete main Administrator accounts."))
+
+    # Delete linked Sales Person
+    sp_name = frappe.db.get_value("Sales Person", {"assigned_user": user}, "name")
+    if not sp_name:
+        sp_name = frappe.db.get_value("Sales Person", {"email": user}, "name")
+    if sp_name:
+        frappe.delete_doc("Sales Person", sp_name, ignore_permissions=True)
+
+    # Delete Frappe User
+    if frappe.db.exists("User", user):
+        frappe.delete_doc("User", user, ignore_permissions=True)
+
+    return {"message": f"User {user} and linked Sales Person deleted successfully"}
+
+@frappe.whitelist(allow_guest=True)
+def get_belt_production_report(from_date=None, to_date=None, product=None):
+    """
+    Comprehensive Belt Production Report API:
+    1. Date-wise Production
+    2. Product-wise Production
+    3. Material Consumption (from Belt Batch Item child table)
+    4. Roll Consumption (Roll Created, Required, Consumed, Wastage, Balance)
+    5. Rejection & Wastage
+    6. Manufacturing Cost & Charges
+    """
+    import datetime
+
+    # 1. Filters
+    conditions = ["docstatus != 2"]
+    params = {}
+    if from_date:
+        conditions.append("posting_date >= %(from_date)s")
+        params["from_date"] = str(from_date).strip()[:10]
+    if to_date:
+        conditions.append("posting_date <= %(to_date)s")
+        params["to_date"] = str(to_date).strip()[:10]
+    if product:
+        conditions.append("(product LIKE %(product)s OR product = %(product_exact)s)")
+        params["product"] = f"%{product.strip()}%"
+        params["product_exact"] = product.strip()
+
+    where_clause = " AND ".join(conditions)
+
+    # 2. Query Belt Batches
+    batches_sql = f"""
+        SELECT 
+            name, stage, process_step, current_process, product, belt_type, 
+            quantity, posting_date, creation, size, length, width, holes, 
+            roll_division_factor, roll_required, roll_consumed, remaining_roll, 
+            wastage_qty, rejection_percent, rejection_amount, 
+            carried_cost, added_cost, charge_total, batch_total, unit_cost, 
+            is_completed, remarks
+        FROM `tabBelt Batch`
+        WHERE {where_clause}
+        ORDER BY posting_date DESC, name DESC
+    """
+    batches = frappe.db.sql(batches_sql, params, as_dict=True)
+
+    if not batches:
+        return {
+            "success": True,
+            "from_date": from_date or "",
+            "to_date": to_date or "",
+            "batches": [],
+            "product_summary": [],
+            "date_summary": [],
+            "material_consumption": [],
+            "roll_consumption": {
+                "summary": {
+                    "total_roll_produced": 0.0,
+                    "total_roll_consumed": 0.0,
+                    "total_roll_required": 0.0,
+                    "total_roll_wastage": 0.0,
+                    "available_roll_balance": 0.0,
+                },
+                "batches": []
+            },
+            "rejection_summary": {
+                "total_planned": 0.0,
+                "total_produced": 0.0,
+                "total_accepted": 0.0,
+                "total_rejected": 0.0,
+                "rejection_rate": 0.0,
+                "total_wastage_qty": 0.0,
+                "total_rejection_cost": 0.0,
+                "batches": []
+            },
+            "cost_summary": {
+                "total_carried_cost": 0.0,
+                "total_added_cost": 0.0,
+                "total_charges": 0.0,
+                "total_cost": 0.0,
+                "avg_unit_cost": 0.0,
+                "batches": []
+            },
+            "summary": {
+                "total_batches": 0,
+                "total_planned": 0.0,
+                "total_produced": 0.0,
+                "total_accepted": 0.0,
+                "total_roll_consumed": 0.0,
+                "total_rejected": 0.0,
+                "total_cost": 0.0,
+                "avg_unit_cost": 0.0
+            }
+        }
+
+    batch_names = [b["name"] for b in batches]
+
+    # 3. Query Child Tables (Items & Charges)
+    items_by_parent = {}
+    charges_by_parent = {}
+    if batch_names:
+        placeholders = ", ".join(["%s"] * len(batch_names))
+        items_sql = f"""
+            SELECT parent, product, actual_utilization, unit_price, actual_amount, 
+                   calculation_type, is_carried_in, idx
+            FROM `tabBelt Batch Item`
+            WHERE parent IN ({placeholders})
+            ORDER BY parent, idx
+        """
+        raw_items = frappe.db.sql(items_sql, batch_names, as_dict=True)
+        for it in raw_items:
+            p = it["parent"]
+            if p not in items_by_parent:
+                items_by_parent[p] = []
+            items_by_parent[p].append(it)
+
+        charges_sql = f"""
+            SELECT parent, charge, quantity, per_unit_price, amount, idx
+            FROM `tabBelt Batch Charge`
+            WHERE parent IN ({placeholders})
+            ORDER BY parent, idx
+        """
+        raw_charges = frappe.db.sql(charges_sql, batch_names, as_dict=True)
+        for ch in raw_charges:
+            p = ch["parent"]
+            if p not in charges_by_parent:
+                charges_by_parent[p] = []
+            charges_by_parent[p].append(ch)
+
+    # 4. Process Each Batch with normalized fields
+    stage_labels = {
+        1: "Stage 1: Roll Creation",
+        2: "Stage 2: Belt Sizing",
+        3: "Stage 3: Belt Finishing",
+        4: "Stage 4: Charges"
+    }
+
+    processed_batches = []
+    material_map = {}
+    product_agg = {}
+    date_agg = {}
+
+    total_roll_produced = 0.0
+    total_roll_consumed = 0.0
+    total_roll_required = 0.0
+    total_roll_wastage = 0.0
+
+    total_planned_all = 0.0
+    total_produced_all = 0.0
+    total_accepted_all = 0.0
+    total_rejected_all = 0.0
+    total_wastage_all = 0.0
+    total_rejection_cost_all = 0.0
+
+    total_carried_all = 0.0
+    total_added_all = 0.0
+    total_charges_all = 0.0
+    total_cost_all = 0.0
+
+    for b in batches:
+        b_name = b["name"]
+        b_items = items_by_parent.get(b_name, [])
+        b_charges = charges_by_parent.get(b_name, [])
+
+        p_date = str(b.get("posting_date") or str(b.get("creation") or "")[:10] or "")
+        stg_num = cint(b.get("process_step") or b.get("stage") or 1)
+        stg_name = b.get("current_process") or stage_labels.get(stg_num, f"Stage {stg_num}")
+        p_name = b.get("product") or ""
+        b_type = b.get("belt_type") or "Standard"
+
+        qty = flt(b.get("quantity") or 0.0)
+        length = flt(b.get("length") or 0.0)
+        width = flt(b.get("width") or 0.0)
+        holes = flt(b.get("holes") or 0.0)
+
+        # Division Factor
+        factor = flt(b.get("roll_division_factor") or 0.0)
+        if factor <= 0 and width > 0:
+            factor = 3.0 if width <= 100 else (2.0 if width <= 150 else 1.0)
+        elif factor <= 0:
+            factor = 1.0
+
+        # Roll Required
+        roll_req = flt(b.get("roll_required") or 0.0)
+        if roll_req <= 0 and length > 0 and qty > 0 and factor > 0:
+            roll_req = round((length / 1000.0 * qty) / factor, 3)
+
+        # Roll Consumed
+        roll_cons = flt(b.get("roll_consumed") or 0.0)
+        if roll_cons <= 0:
+            for it in b_items:
+                it_prod = (it.get("product") or "").upper()
+                if "ROLL" in it_prod or "FABRIC" in it_prod:
+                    roll_cons = flt(it.get("actual_utilization") or 0.0)
+                    break
+        if roll_cons <= 0 and roll_req > 0:
+            roll_cons = roll_req
+
+        # Roll Wastage & Remaining
+        roll_waste = max(0.0, round(roll_cons - roll_req, 3)) if (roll_cons > roll_req and roll_req > 0) else 0.0
+        remaining_roll = flt(b.get("remaining_roll") or 0.0)
+
+        # Rejection & Wastage
+        wastage_q = flt(b.get("wastage_qty") or 0.0)
+        rej_pct = flt(b.get("rejection_percent") or 0.0)
+        rej_amt = flt(b.get("rejection_amount") or 0.0)
+        rej_q = wastage_q if wastage_q > 0 else (round(qty * rej_pct / 100.0, 3) if rej_pct > 0 else 0.0)
+        acc_q = max(0.0, round(qty - rej_q, 3))
+
+        # Financials
+        carried_c = flt(b.get("carried_cost") or 0.0)
+        added_c = flt(b.get("added_cost") or 0.0)
+        charge_tot = flt(b.get("charge_total") or 0.0)
+        batch_tot = flt(b.get("batch_total") or 0.0)
+        u_cost = flt(b.get("unit_cost") or (batch_tot / acc_q if acc_q > 0 else 0.0))
+
+        # Track Roll Produced vs Consumed
+        if stg_num == 1:
+            total_roll_produced += qty
+        elif stg_num == 2:
+            total_roll_consumed += roll_cons
+            total_roll_required += roll_req
+            total_roll_wastage += roll_waste
+
+        # Overall KPI accumulation
+        total_planned_all += qty
+        total_produced_all += qty
+        total_accepted_all += acc_q
+        total_rejected_all += rej_q
+        total_wastage_all += wastage_q
+        total_rejection_cost_all += rej_amt
+
+        total_carried_all += carried_c
+        total_added_all += added_c
+        total_charges_all += charge_tot
+        total_cost_all += batch_tot
+
+        # Format items for this batch
+        clean_items = []
+        for it in b_items:
+            m_code = it.get("product") or ""
+            u_qty = flt(it.get("actual_utilization") or 0.0)
+            u_rate = flt(it.get("unit_price") or 0.0)
+            u_amt = flt(it.get("actual_amount") or (u_qty * u_rate))
+            is_car = cint(it.get("is_carried_in") or 0)
+            calc_t = it.get("calculation_type") or "Quantity"
+
+            clean_items.append({
+                "product": m_code,
+                "utilization": round(u_qty, 3),
+                "unit_price": round(u_rate, 2),
+                "amount": round(u_amt, 2),
+                "calculation_type": calc_t,
+                "is_carried_in": is_car
+            })
+
+            # Material consumption aggregation
+            is_inter = (m_code == p_name) or ("BELT" in m_code and "ROLL" not in m_code and stg_num > 1)
+            if m_code not in material_map:
+                material_map[m_code] = {
+                    "product": m_code,
+                    "total_consumed": 0.0,
+                    "total_cost": 0.0,
+                    "batches_used": [],
+                    "is_intermediate": is_inter
+                }
+            material_map[m_code]["total_consumed"] += u_qty
+            material_map[m_code]["total_cost"] += u_amt
+            if b_name not in material_map[m_code]["batches_used"]:
+                material_map[m_code]["batches_used"].append(b_name)
+
+        # Batch object
+        b_dict = {
+            "name": b_name,
+            "posting_date": p_date,
+            "product": p_name,
+            "belt_type": b_type,
+            "stage": stg_num,
+            "stage_name": stg_name,
+            "status": "Completed" if cint(b.get("is_completed")) == 1 else "In Progress",
+            "is_completed": cint(b.get("is_completed") or 0),
+            "planned_quantity": round(qty, 3),
+            "produced_quantity": round(qty, 3),
+            "accepted_quantity": round(acc_q, 3),
+            "rejected_quantity": round(rej_q, 3),
+            "rejection_percent": round(rej_pct, 2),
+            "wastage_qty": round(wastage_q, 3),
+            "rejection_amount": round(rej_amt, 2),
+            "length": round(length, 1),
+            "width": round(width, 1),
+            "holes": round(holes, 0),
+            "roll_division_factor": round(factor, 1),
+            "roll_required": round(roll_req, 3),
+            "roll_consumed": round(roll_cons, 3),
+            "roll_wastage": round(roll_waste, 3),
+            "remaining_roll": round(remaining_roll, 3),
+            "carried_cost": round(carried_c, 2),
+            "added_cost": round(added_c, 2),
+            "charge_total": round(charge_tot, 2),
+            "batch_total": round(batch_tot, 2),
+            "unit_cost": round(u_cost, 2),
+            "items": clean_items,
+            "charges": b_charges
+        }
+        processed_batches.append(b_dict)
+
+        # Product-wise aggregation
+        if p_name not in product_agg:
+            product_agg[p_name] = {
+                "product": p_name,
+                "belt_type": b_type,
+                "dimensions": f"{round(length, 1)} × {round(width, 1)} mm" if length > 0 and width > 0 else "Roll Fabric",
+                "stage1_qty": 0.0,
+                "stage2_qty": 0.0,
+                "stage3_qty": 0.0,
+                "stage4_qty": 0.0,
+                "total_produced": 0.0,
+                "total_accepted": 0.0,
+                "total_rejected": 0.0,
+                "total_cost": 0.0,
+                "batch_count": 0,
+                "batches": []
+            }
+        pa = product_agg[p_name]
+        pa["batch_count"] += 1
+        pa["batches"].append(b_name)
+        pa["total_produced"] += qty
+        pa["total_accepted"] += acc_q
+        pa["total_rejected"] += rej_q
+        pa["total_cost"] += batch_tot
+        if stg_num == 1:
+            pa["stage1_qty"] += qty
+        elif stg_num == 2:
+            pa["stage2_qty"] += qty
+        elif stg_num == 3:
+            pa["stage3_qty"] += qty
+        elif stg_num == 4:
+            pa["stage4_qty"] += qty
+
+        # Date-wise aggregation
+        if p_date not in date_agg:
+            date_agg[p_date] = {
+                "date": p_date,
+                "batches_count": 0,
+                "total_planned": 0.0,
+                "total_produced": 0.0,
+                "total_accepted": 0.0,
+                "total_rejected": 0.0,
+                "total_cost": 0.0,
+                "batches": []
+            }
+        da = date_agg[p_date]
+        da["batches_count"] += 1
+        da["total_planned"] += qty
+        da["total_produced"] += qty
+        da["total_accepted"] += acc_q
+        da["total_rejected"] += rej_q
+        da["total_cost"] += batch_tot
+        da["batches"].append(b_name)
+
+    # 5. Format Material Consumption Rows
+    material_consumption_list = []
+    for m_code, md in sorted(material_map.items(), key=lambda x: x[1]["total_cost"], reverse=True):
+        t_qty = md["total_consumed"]
+        t_cost = md["total_cost"]
+        avg_r = t_cost / t_qty if t_qty > 0 else 0.0
+        material_consumption_list.append({
+            "product": m_code,
+            "total_consumed": round(t_qty, 3),
+            "total_cost": round(t_cost, 2),
+            "avg_rate": round(avg_r, 2),
+            "batches_count": len(md["batches_used"]),
+            "batches_used": md["batches_used"],
+            "is_intermediate": md["is_intermediate"]
+        })
+
+    # 6. Format Product Summary Rows
+    product_summary_list = []
+    for p_name, pa in sorted(product_agg.items(), key=lambda x: x[1]["total_cost"], reverse=True):
+        avg_u = pa["total_cost"] / pa["total_accepted"] if pa["total_accepted"] > 0 else 0.0
+        product_summary_list.append({
+            "product": p_name,
+            "belt_type": pa["belt_type"],
+            "dimensions": pa["dimensions"],
+            "stage1_qty": round(pa["stage1_qty"], 3),
+            "stage2_qty": round(pa["stage2_qty"], 3),
+            "stage3_qty": round(pa["stage3_qty"], 3),
+            "stage4_qty": round(pa["stage4_qty"], 3),
+            "total_produced": round(pa["total_produced"], 3),
+            "total_accepted": round(pa["total_accepted"], 3),
+            "total_rejected": round(pa["total_rejected"], 3),
+            "total_cost": round(pa["total_cost"], 2),
+            "avg_unit_cost": round(avg_u, 2),
+            "batch_count": pa["batch_count"],
+            "batches": pa["batches"]
+        })
+
+    # 7. Format Date Summary Rows
+    date_summary_list = []
+    for p_date, da in sorted(date_agg.items(), key=lambda x: x[0], reverse=True):
+        avg_u = da["total_cost"] / da["total_accepted"] if da["total_accepted"] > 0 else 0.0
+        date_summary_list.append({
+            "date": p_date,
+            "batches_count": da["batches_count"],
+            "total_planned": round(da["total_planned"], 3),
+            "total_produced": round(da["total_produced"], 3),
+            "total_accepted": round(da["total_accepted"], 3),
+            "total_rejected": round(da["total_rejected"], 3),
+            "total_cost": round(da["total_cost"], 2),
+            "avg_unit_cost": round(avg_u, 2),
+            "batches": da["batches"]
+        })
+
+    # 8. Overall KPIs
+    overall_avg_cost = total_cost_all / total_accepted_all if total_accepted_all > 0 else 0.0
+    overall_rej_rate = (total_rejected_all / total_produced_all * 100.0) if total_produced_all > 0 else 0.0
+
+    return {
+        "success": True,
+        "from_date": from_date or "",
+        "to_date": to_date or "",
+        "batches": processed_batches,
+        "product_summary": product_summary_list,
+        "date_summary": date_summary_list,
+        "material_consumption": material_consumption_list,
+        "roll_consumption": {
+            "summary": {
+                "total_roll_produced": round(total_roll_produced, 3),
+                "total_roll_consumed": round(total_roll_consumed, 3),
+                "total_roll_required": round(total_roll_required, 3),
+                "total_roll_wastage": round(total_roll_wastage, 3),
+                "available_roll_balance": round(max(0.0, total_roll_produced - total_roll_consumed), 3),
+            },
+            "batches": processed_batches
+        },
+        "rejection_summary": {
+            "total_planned": round(total_planned_all, 3),
+            "total_produced": round(total_produced_all, 3),
+            "total_accepted": round(total_accepted_all, 3),
+            "total_rejected": round(total_rejected_all, 3),
+            "rejection_rate": round(overall_rej_rate, 2),
+            "total_wastage_qty": round(total_wastage_all, 3),
+            "total_rejection_cost": round(total_rejection_cost_all, 2),
+            "batches": processed_batches
+        },
+        "cost_summary": {
+            "total_carried_cost": round(total_carried_all, 2),
+            "total_added_cost": round(total_added_all, 2),
+            "total_charges": round(total_charges_all, 2),
+            "total_cost": round(total_cost_all, 2),
+            "avg_unit_cost": round(overall_avg_cost, 2),
+            "batches": processed_batches
+        },
+        "summary": {
+            "total_batches": len(processed_batches),
+            "total_planned": round(total_planned_all, 3),
+            "total_produced": round(total_produced_all, 3),
+            "total_accepted": round(total_accepted_all, 3),
+            "total_roll_consumed": round(total_roll_consumed, 3),
+            "total_rejected": round(total_rejected_all, 3),
+            "total_cost": round(total_cost_all, 2),
+            "avg_unit_cost": round(overall_avg_cost, 2)
+        }
+    }
+
+# ============================================================================
+# REPORT: PENDING DISPATCH ANALYSIS & PRICE ANALYSIS APIS
+# ============================================================================
+
+@frappe.whitelist()
+def get_pending_dispatch_analysis(
+    from_date=None,
+    to_date=None,
+    customer=None,
+    sales_order=None,
+    product=None,
+    product_code=None,
+    production_code=None,
+    sales_person=None,
+    order_status=None,
+    include_completed=0,
+):
+    """
+    Pending Dispatch Analysis Report:
+    Shows all Sales Orders where an order has been approved but the ordered quantity
+    has not been fully dispatched.
+    Only confirmed dispatches (dispatch_status = 'Dispatched' AND docstatus != 2) are counted.
+    Excludes cancelled Sales Orders (status != 'Cancelled' AND docstatus != 2).
+    """
+    user = frappe.session.user
+    sp = get_current_sales_person(user)
+    admin = is_admin(user)
+
+    # 1. Fetch confirmed dispatches aggregated by Sales Order Item row
+    dsp_receipts = frappe.db.sql("""
+        SELECT 
+            di.order_item,
+            SUM(di.quantity) as total_dispatched
+        FROM `tabDispatch Item` di
+        JOIN `tabDispatch` d ON d.name = di.parent
+        WHERE d.dispatch_status = 'Dispatched' AND d.docstatus != 2
+        GROUP BY di.order_item
+    """, as_dict=True)
+    dsp_map = {r.order_item: flt(r.total_dispatched) for r in dsp_receipts}
+
+    conditions = ["so.status NOT IN ('Cancelled', 'Rejected')", "so.docstatus != 2"]
+    values = {}
+
+    # Sales person security: Sales Person users can only see their authorized sales records
+    if not admin and sp:
+        conditions.append("so.sales_person = %(current_sp)s")
+        values["current_sp"] = sp.name
+    elif not admin and not sp:
+        return {
+            "rows": [],
+            "summary": {
+                "total_pending_orders": 0,
+                "total_ordered_qty": 0.0,
+                "total_dispatched_qty": 0.0,
+                "total_pending_dispatch_qty": 0.0,
+                "total_pending_amount": 0.0,
+                "total_rows": 0,
+            },
+            "customers": [],
+            "products": [],
+            "sales_persons": [],
+            "order_statuses": [],
+        }
+
+    # Filters
+    if from_date:
+        conditions.append("so.order_date >= %(from_date)s")
+        values["from_date"] = from_date
+    if to_date:
+        conditions.append("so.order_date <= %(to_date)s")
+        values["to_date"] = to_date
+    if customer and str(customer).strip() not in ("All", "ALL", "__ALL__", "", "undefined", "null"):
+        conditions.append("so.customer = %(customer)s")
+        values["customer"] = customer
+    if sales_order and str(sales_order).strip() not in ("All", "ALL", "__ALL__", "", "undefined", "null"):
+        conditions.append("so.name LIKE %(sales_order)s")
+        values["sales_order"] = f"%{sales_order.strip()}%"
+    if product and str(product).strip() not in ("All", "ALL", "__ALL__", "", "undefined", "null"):
+        conditions.append("(p.product_name LIKE %(product)s OR soi.product LIKE %(product)s)")
+        values["product"] = f"%{product.strip()}%"
+    if product_code and str(product_code).strip() not in ("All", "ALL", "__ALL__", "", "undefined", "null"):
+        conditions.append("soi.product = %(product_code)s")
+        values["product_code"] = product_code
+    if production_code and str(production_code).strip() not in ("All", "ALL", "__ALL__", "", "undefined", "null"):
+        conditions.append("p.production_code = %(production_code)s")
+        values["production_code"] = production_code
+    if sales_person and str(sales_person).strip() not in ("All", "ALL", "__ALL__", "", "undefined", "null"):
+        conditions.append("so.sales_person = %(sales_person)s")
+        values["sales_person"] = sales_person
+    if order_status and str(order_status).strip() not in ("All", "ALL", "__ALL__", "", "undefined", "null"):
+        conditions.append("so.status = %(order_status)s")
+        values["order_status"] = order_status
+
+    where_clause = " AND ".join(conditions)
+
+    query = f"""
+        SELECT 
+            so.name as sales_order_id,
+            so.order_date,
+            so.customer,
+            c.customer_name,
+            so.status as order_status,
+            so.sales_person,
+            sp.sales_person_name,
+            soi.name as item_row_name,
+            soi.product as product_code,
+            p.product_name,
+            p.production_code,
+            soi.uom,
+            soi.quantity as ordered_qty,
+            soi.rate,
+            soi.amount as total_order_amount
+        FROM `tabSales Order` so
+        JOIN `tabSales Order Item` soi ON soi.parent = so.name
+        LEFT JOIN `tabCustomer` c ON c.name = so.customer
+        LEFT JOIN `tabProduct` p ON p.name = soi.product
+        LEFT JOIN `tabSales Person` sp ON sp.name = so.sales_person
+        WHERE {where_clause}
+        ORDER BY so.order_date DESC, so.creation DESC, so.name DESC
+    """
+    raw_rows = frappe.db.sql(query, values, as_dict=True)
+
+    rows = []
+    tot_ordered = 0.0
+    tot_dispatched = 0.0
+    tot_pending = 0.0
+    tot_pending_amount = 0.0
+    pending_order_ids = set()
+
+    inc_comp = 1 if include_completed in ("1", 1, "true", "True", True) else 0
+
+    for r in raw_rows:
+        ordered = flt(r.ordered_qty)
+        dispatched = dsp_map.get(r.item_row_name, 0.0)
+        pending = max(0.0, ordered - dispatched)
+
+        if not inc_comp and pending <= 0.000001:
+            continue
+
+        rate = flt(r.rate)
+        total_order_amt = round(ordered * rate, 2)
+        dispatched_amt = round(dispatched * rate, 2)
+        pending_amt = round(pending * rate, 2)
+
+        customer_display = r.customer_name or r.customer or "Unknown Customer"
+        prod_display = r.product_name or r.product_code or ""
+
+        rows.append({
+            "sales_order_date": str(r.order_date) if r.order_date else "",
+            "sales_order_id": r.sales_order_id,
+            "customer_id": r.customer,
+            "customer_name": customer_display,
+            "product_name": prod_display,
+            "product_code": r.product_code,
+            "production_code": r.production_code or "",
+            "ordered_qty": ordered,
+            "dispatched_qty": dispatched,
+            "pending_qty": pending,
+            "uom": r.uom or "",
+            "rate": rate,
+            "total_order_amount": total_order_amt,
+            "dispatched_amount": dispatched_amt,
+            "pending_amount": pending_amt,
+            "order_status": r.order_status or "Draft",
+            "expected_delivery_date": "",
+            "sales_person": r.sales_person_name or r.sales_person or "",
+        })
+
+        tot_ordered += ordered
+        tot_dispatched += dispatched
+        tot_pending += pending
+        tot_pending_amount += pending_amt
+        if pending > 0.000001:
+            pending_order_ids.add(r.sales_order_id)
+
+    # Master lists for dropdown filters
+    customer_list = frappe.db.sql("SELECT name, customer_name FROM `tabCustomer` ORDER BY customer_name ASC", as_dict=True)
+    product_list = frappe.db.sql("SELECT name, product_name, production_code FROM `tabProduct` ORDER BY product_name ASC", as_dict=True)
+    sp_list = frappe.db.sql("SELECT name, sales_person_name FROM `tabSales Person` ORDER BY sales_person_name ASC", as_dict=True)
+
+    customers = [{"value": "ALL", "label": "All Customers"}] + [
+        {"value": c.name, "label": c.customer_name or c.name} for c in customer_list
+    ]
+    products = [{"value": "ALL", "label": "All Products"}] + [
+        {"value": p.name, "label": f"{p.name} - {p.product_name}" if p.product_name else p.name} for p in product_list
+    ]
+    sales_persons = [{"value": "ALL", "label": "All Sales Persons"}] + [
+        {"value": sp_item.name, "label": sp_item.sales_person_name or sp_item.name} for sp_item in sp_list
+    ]
+    order_statuses = [
+        {"value": "ALL", "label": "All Statuses"},
+        {"value": "Approved", "label": "Approved"},
+        {"value": "Partially Dispatched", "label": "Partially Dispatched"},
+        {"value": "Pending Approval", "label": "Pending Approval"},
+        {"value": "Completed", "label": "Completed"},
+    ]
+
+    return {
+        "rows": rows,
+        "summary": {
+            "total_pending_orders": len(pending_order_ids),
+            "total_ordered_qty": round(tot_ordered, 4),
+            "total_dispatched_qty": round(tot_dispatched, 4),
+            "total_pending_dispatch_qty": round(tot_pending, 4),
+            "total_pending_amount": round(tot_pending_amount, 2),
+            "total_rows": len(rows),
+        },
+        "customers": customers,
+        "products": products,
+        "sales_persons": sales_persons,
+        "order_statuses": order_statuses,
+    }
+
+
+@frappe.whitelist()
+def get_price_analysis(
+    report_type="purchase",
+    from_date=None,
+    to_date=None,
+    product=None,
+    product_code=None,
+    category=None,
+    uom=None,
+    vendor=None,
+    purchase_entry=None,
+    customer=None,
+    sales_order=None,
+    dispatch_id=None,
+    sales_person=None,
+):
+    """
+    Purchase & Selling Price Analysis Report:
+    Displays the latest purchase price or latest selling price of each product,
+    along with associated vendor/customer and transaction date, plus min and max rates in date range.
+    """
+    user = frappe.session.user
+    sp = get_current_sales_person(user)
+    admin = is_admin(user)
+
+    is_purchase = (str(report_type).lower() == "purchase")
+
+    if is_purchase:
+        conditions = ["pe.status NOT IN ('Draft', 'Cancelled', 'Rejected')", "pe.docstatus != 2"]
+        values = {}
+
+        if from_date:
+            conditions.append("pe.posting_date >= %(from_date)s")
+            values["from_date"] = from_date
+        if to_date:
+            conditions.append("pe.posting_date <= %(to_date)s")
+            values["to_date"] = to_date
+        if vendor and str(vendor).strip() not in ("All", "ALL", "__ALL__", "", "undefined", "null"):
+            conditions.append("pe.vendor = %(vendor)s")
+            values["vendor"] = vendor
+        if purchase_entry and str(purchase_entry).strip() not in ("All", "ALL", "__ALL__", "", "undefined", "null"):
+            conditions.append("pe.name LIKE %(purchase_entry)s")
+            values["purchase_entry"] = f"%{purchase_entry.strip()}%"
+        if product and str(product).strip() not in ("All", "ALL", "__ALL__", "", "undefined", "null"):
+            conditions.append("(p.product_name LIKE %(product)s OR pei.product LIKE %(product)s)")
+            values["product"] = f"%{product.strip()}%"
+        if product_code and str(product_code).strip() not in ("All", "ALL", "__ALL__", "", "undefined", "null"):
+            conditions.append("pei.product = %(product_code)s")
+            values["product_code"] = product_code
+        if category and str(category).strip() not in ("All", "ALL", "__ALL__", "", "undefined", "null"):
+            conditions.append("p.category = %(category)s")
+            values["category"] = category
+        if uom and str(uom).strip() not in ("All", "ALL", "__ALL__", "", "undefined", "null"):
+            conditions.append("pei.uom = %(uom)s")
+            values["uom"] = uom
+
+        query = f"""
+            SELECT 
+                pe.name as purchase_entry_id,
+                pe.posting_date,
+                pe.creation,
+                pe.vendor,
+                v.vendor_name,
+                pei.product as product_code,
+                p.product_name,
+                p.category,
+                pei.quantity as purchase_qty,
+                pei.rate as purchase_rate,
+                pei.uom
+            FROM `tabPurchase Entry Item` pei
+            JOIN `tabPurchase Entry` pe ON pe.name = pei.parent
+            LEFT JOIN `tabVendor` v ON v.name = pe.vendor
+            LEFT JOIN `tabProduct` p ON p.name = pei.product
+            WHERE {" AND ".join(conditions)}
+            ORDER BY pe.posting_date DESC, pe.creation DESC, pe.name DESC
+        """
+        raw_purchases = frappe.db.sql(query, values, as_dict=True)
+
+        by_product = {}
+        for r in raw_purchases:
+            pcode = r.product_code
+            rate = flt(r.purchase_rate)
+            if pcode not in by_product:
+                by_product[pcode] = {
+                    "latest": r,
+                    "rates": [rate],
+                }
+            else:
+                by_product[pcode]["rates"].append(rate)
+
+        rows = []
+        tot_latest_val = 0.0
+        all_min_rates = []
+        all_max_rates = []
+
+        for pcode, data in by_product.items():
+            lat = data["latest"]
+            rates = data["rates"]
+            last_rate = flt(lat.purchase_rate)
+            min_rate = min(rates)
+            max_rate = max(rates)
+            qty = flt(lat.purchase_qty)
+            val = round(qty * last_rate, 2)
+
+            rows.append({
+                "product_name": lat.product_name or pcode,
+                "product_code": pcode,
+                "vendor_name": lat.vendor_name or lat.vendor or "Unknown Vendor",
+                "vendor_id": lat.vendor,
+                "last_purchase_date": str(lat.posting_date) if lat.posting_date else "",
+                "purchase_entry_id": lat.purchase_entry_id,
+                "purchase_qty": qty,
+                "last_purchase_rate": last_rate,
+                "min_purchase_rate": min_rate,
+                "max_purchase_rate": max_rate,
+                "purchase_uom": lat.uom or "",
+                "currency": "₹",
+                "category": lat.category or "",
+                "latest_value": val,
+            })
+            tot_latest_val += val
+            all_min_rates.append(min_rate)
+            all_max_rates.append(max_rate)
+
+        rows.sort(key=lambda x: (x["product_name"] or "").lower())
+
+        summary = {
+            "total_products": len(rows),
+            "latest_total_value": round(tot_latest_val, 2),
+            "min_rate": min(all_min_rates) if all_min_rates else 0.0,
+            "max_rate": max(all_max_rates) if all_max_rates else 0.0,
+        }
+
+    else:
+        # Selling Wise
+        conditions = ["d.dispatch_status = 'Dispatched'", "d.docstatus != 2"]
+        values = {}
+
+        if not admin and sp:
+            conditions.append("so.sales_person = %(current_sp)s")
+            values["current_sp"] = sp.name
+        elif not admin and not sp:
+            return {
+                "rows": [],
+                "summary": {"total_products": 0, "latest_total_value": 0.0, "min_rate": 0.0, "max_rate": 0.0},
+                "categories": [], "uoms": [], "vendors": [], "customers": [], "sales_persons": [],
+            }
+
+        if from_date:
+            conditions.append("d.dispatch_date >= %(from_date)s")
+            values["from_date"] = from_date
+        if to_date:
+            conditions.append("d.dispatch_date <= %(to_date)s")
+            values["to_date"] = to_date
+        if customer and str(customer).strip() not in ("All", "ALL", "__ALL__", "", "undefined", "null"):
+            conditions.append("d.customer = %(customer)s")
+            values["customer"] = customer
+        if sales_order and str(sales_order).strip() not in ("All", "ALL", "__ALL__", "", "undefined", "null"):
+            conditions.append("d.sales_order LIKE %(sales_order)s")
+            values["sales_order"] = f"%{sales_order.strip()}%"
+        if dispatch_id and str(dispatch_id).strip() not in ("All", "ALL", "__ALL__", "", "undefined", "null"):
+            conditions.append("d.name LIKE %(dispatch_id)s")
+            values["dispatch_id"] = f"%{dispatch_id.strip()}%"
+        if sales_person and str(sales_person).strip() not in ("All", "ALL", "__ALL__", "", "undefined", "null"):
+            conditions.append("so.sales_person = %(sales_person)s")
+            values["sales_person"] = sales_person
+        if product and str(product).strip() not in ("All", "ALL", "__ALL__", "", "undefined", "null"):
+            conditions.append("(p.product_name LIKE %(product)s OR di.product LIKE %(product)s)")
+            values["product"] = f"%{product.strip()}%"
+        if product_code and str(product_code).strip() not in ("All", "ALL", "__ALL__", "", "undefined", "null"):
+            conditions.append("di.product = %(product_code)s")
+            values["product_code"] = product_code
+        if category and str(category).strip() not in ("All", "ALL", "__ALL__", "", "undefined", "null"):
+            conditions.append("p.category = %(category)s")
+            values["category"] = category
+        if uom and str(uom).strip() not in ("All", "ALL", "__ALL__", "", "undefined", "null"):
+            conditions.append("(soi.uom = %(uom)s OR p.uom = %(uom)s)")
+            values["uom"] = uom
+
+        query = f"""
+            SELECT 
+                d.name as dispatch_id,
+                d.dispatch_date,
+                d.creation,
+                d.sales_order as sales_order_id,
+                d.customer,
+                c.customer_name,
+                so.sales_person,
+                sp.sales_person_name,
+                di.product as product_code,
+                p.product_name,
+                p.category,
+                di.quantity as sold_qty,
+                COALESCE(soi.rate, di.unit_cost) as selling_rate,
+                COALESCE(soi.uom, p.uom) as uom
+            FROM `tabDispatch Item` di
+            JOIN `tabDispatch` d ON d.name = di.parent
+            LEFT JOIN `tabSales Order` so ON so.name = d.sales_order
+            LEFT JOIN `tabSales Order Item` soi ON soi.name = di.order_item
+            LEFT JOIN `tabCustomer` c ON c.name = d.customer
+            LEFT JOIN `tabProduct` p ON p.name = di.product
+            LEFT JOIN `tabSales Person` sp ON sp.name = so.sales_person
+            WHERE {" AND ".join(conditions)}
+            ORDER BY d.dispatch_date DESC, d.creation DESC, d.name DESC
+        """
+        raw_sales = frappe.db.sql(query, values, as_dict=True)
+
+        by_product = {}
+        for r in raw_sales:
+            pcode = r.product_code
+            rate = flt(r.selling_rate)
+            if pcode not in by_product:
+                by_product[pcode] = {
+                    "latest": r,
+                    "rates": [rate],
+                }
+            else:
+                by_product[pcode]["rates"].append(rate)
+
+        rows = []
+        tot_latest_val = 0.0
+        all_min_rates = []
+        all_max_rates = []
+
+        for pcode, data in by_product.items():
+            lat = data["latest"]
+            rates = data["rates"]
+            last_rate = flt(lat.selling_rate)
+            min_rate = min(rates)
+            max_rate = max(rates)
+            qty = flt(lat.sold_qty)
+            val = round(qty * last_rate, 2)
+
+            rows.append({
+                "product_name": lat.product_name or pcode,
+                "product_code": pcode,
+                "customer_name": lat.customer_name or lat.customer or "Unknown Customer",
+                "customer_id": lat.customer,
+                "last_selling_date": str(lat.dispatch_date) if lat.dispatch_date else "",
+                "sales_order_id": lat.sales_order_id or "",
+                "dispatch_id": lat.dispatch_id,
+                "sold_qty": qty,
+                "last_selling_rate": last_rate,
+                "min_selling_rate": min_rate,
+                "max_selling_rate": max_rate,
+                "selling_uom": lat.uom or "",
+                "currency": "₹",
+                "category": lat.category or "",
+                "sales_person": lat.sales_person_name or lat.sales_person or "",
+                "latest_value": val,
+            })
+            tot_latest_val += val
+            all_min_rates.append(min_rate)
+            all_max_rates.append(max_rate)
+
+        rows.sort(key=lambda x: (x["product_name"] or "").lower())
+
+        summary = {
+            "total_products": len(rows),
+            "latest_total_value": round(tot_latest_val, 2),
+            "min_rate": min(all_min_rates) if all_min_rates else 0.0,
+            "max_rate": max(all_max_rates) if all_max_rates else 0.0,
+        }
+
+    # Common dropdown metadata
+    cat_list = frappe.db.sql("SELECT name, category_name FROM `tabCategory` ORDER BY category_name ASC", as_dict=True)
+    uom_list = frappe.db.sql("SELECT name, uom_name FROM `tabUOM` ORDER BY uom_name ASC", as_dict=True)
+    vendor_list = frappe.db.sql("SELECT name, vendor_name FROM `tabVendor` ORDER BY vendor_name ASC", as_dict=True)
+    cust_list = frappe.db.sql("SELECT name, customer_name FROM `tabCustomer` ORDER BY customer_name ASC", as_dict=True)
+    sp_list = frappe.db.sql("SELECT name, sales_person_name FROM `tabSales Person` ORDER BY sales_person_name ASC", as_dict=True)
+
+    return {
+        "rows": rows,
+        "summary": summary,
+        "categories": [{"value": "ALL", "label": "All Categories"}] + [{"value": c.name, "label": c.category_name or c.name} for c in cat_list],
+        "uoms": [{"value": "ALL", "label": "All UOMs"}] + [{"value": u.name, "label": u.uom_name or u.name} for u in uom_list],
+        "vendors": [{"value": "ALL", "label": "All Vendors"}] + [{"value": v.name, "label": v.vendor_name or v.name} for v in vendor_list],
+        "customers": [{"value": "ALL", "label": "All Customers"}] + [{"value": c.name, "label": c.customer_name or c.name} for c in cust_list],
+        "sales_persons": [{"value": "ALL", "label": "All Sales Persons"}] + [{"value": s.name, "label": s.sales_person_name or s.name} for s in sp_list],
     }
