@@ -71,6 +71,10 @@
   {
    "role": "CS Production",
    "read": 1
+  },
+  {
+   "role": "Store Executive",
+   "read": 1
   }
  ],
  "autoname": "format:{product}-{stage}"

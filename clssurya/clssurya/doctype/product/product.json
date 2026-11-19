@@ -19,6 +19,11 @@
    "in_list_view": 1
   },
   {
+   "fieldname": "image",
+   "fieldtype": "Attach Image",
+   "label": "Product Image"
+  },
+  {
    "fieldname": "product_code",
    "fieldtype": "Data",
    "label": "Product Code",
@@ -104,6 +109,15 @@
    "depends_on": "eval:doc.product_type=='Finished' && doc.finished_good_type=='Belt'"
   },
   {
+   "fieldname": "belt_color",
+   "fieldtype": "Select",
+   "label": "Belt Color",
+   "options": "Brown\nBlack",
+   "default": "Brown",
+   "in_list_view": 1,
+   "depends_on": "eval:doc.product_type=='Finished' && doc.finished_good_type=='Belt'"
+  },
+  {
    "fieldname": "belt_length",
    "fieldtype": "Float",
    "label": "Belt Length",
@@ -123,10 +137,29 @@
    "label": "Hole",
    "precision": "9",
    "depends_on": "eval:doc.product_type=='Finished' && doc.finished_good_type=='Belt'"
+  },
+  {
+   "fieldname": "company_code",
+   "fieldtype": "Data",
+   "label": "Company Code",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "competitor_company",
+   "fieldtype": "Data",
+   "label": "Competitor Company",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "competitor_company_code",
+   "fieldtype": "Data",
+   "label": "Competitor Company Code",
+   "in_list_view": 1
   }
  ],
  "field_order": [
   "product_name",
+  "image",
   "product_code",
   "product_type",
   "uom",
@@ -140,9 +173,13 @@
   "production_code",
   "finished_good_type",
   "band_type",
+  "belt_color",
   "belt_length",
   "belt_width",
-  "hole"
+  "hole",
+  "company_code",
+  "competitor_company",
+  "competitor_company_code"
  ],
  "permissions": [
   {

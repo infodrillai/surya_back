@@ -47,10 +47,26 @@
    "read_only": 1
   },
   {
+   "fieldname": "operation_sequence",
+   "fieldtype": "Select",
+   "label": "Operation Sequence",
+   "options": "Operation 1: Parting\nOperation 2: Side Shaping 1\nOperation 3: Side Shaping 2\nOperation 4: Other",
+   "default": "Operation 1: Parting",
+   "in_list_view": 1
+  },
+  {
    "fieldname": "operation",
    "fieldtype": "Link",
    "label": "Process / Operation",
    "options": "Process"
+  },
+  {
+   "fieldname": "shift",
+   "fieldtype": "Select",
+   "label": "Shift",
+   "options": "Morning\nEvening\nNight",
+   "default": "Morning",
+   "in_list_view": 1
   },
   {
    "fieldname": "operator",
@@ -88,6 +104,13 @@
    "precision": "2"
   },
   {
+   "fieldname": "input_qty",
+   "fieldtype": "Float",
+   "label": "Input Quantity",
+   "precision": "2",
+   "in_list_view": 1
+  },
+  {
    "fieldname": "qty_processed",
    "fieldtype": "Float",
    "label": "Quantity Processed",
@@ -105,7 +128,26 @@
    "fieldname": "rejected_qty",
    "fieldtype": "Float",
    "label": "Rejected Quantity",
+   "precision": "2",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "pending_qty",
+   "fieldtype": "Float",
+   "label": "Pending / In-Process Quantity",
    "precision": "2"
+  },
+  {
+   "fieldname": "rejection_reason",
+   "fieldtype": "Data",
+   "label": "Rejection Reason"
+  },
+  {
+   "fieldname": "rejection_status",
+   "fieldtype": "Select",
+   "label": "Rejection Status",
+   "options": "Scrap\nRework\nInspection Hold",
+   "default": "Scrap"
   },
   {
    "fieldname": "remarks",
@@ -119,16 +161,22 @@
   "production_batch",
   "product",
   "product_name",
+  "operation_sequence",
   "operation",
+  "shift",
   "operator",
   "start_time",
   "end_time",
   "total_duration_mins",
   "running_time_mins",
   "downtime_mins",
+  "input_qty",
   "qty_processed",
   "accepted_qty",
   "rejected_qty",
+  "pending_qty",
+  "rejection_reason",
+  "rejection_status",
   "remarks"
  ],
  "permissions": [

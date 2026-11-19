@@ -7,6 +7,10 @@
  "field_order": [
   "customer",
   "quotation_date",
+  "currency",
+  "exchange_rate",
+  "validity_days",
+  "valid_until",
   "version",
   "parent_quotation",
   "status",
@@ -41,6 +45,32 @@
    "label": "Quotation Date"
   },
   {
+   "default": "INR",
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Currency",
+   "options": "Currency"
+  },
+  {
+   "default": "1.0",
+   "fieldname": "exchange_rate",
+   "fieldtype": "Float",
+   "label": "Exchange Rate"
+  },
+  {
+   "default": "15",
+   "fieldname": "validity_days",
+   "fieldtype": "Int",
+   "label": "Validity Days"
+  },
+  {
+   "fieldname": "valid_until",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Valid Until"
+  },
+  {
    "default": "1",
    "fieldname": "version",
    "fieldtype": "Int",
@@ -60,7 +90,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Draft\nSent\nApproved\nSuperseded\nAccepted\nRejected"
+   "options": "Draft\nSent\nApproved\nSuperseded\nAccepted\nRejected\nDisapproved"
   },
   {
    "fieldname": "items",

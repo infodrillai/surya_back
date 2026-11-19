@@ -1,9 +1,9 @@
 from clssurya.constants import MASTERS
 
 app_name = "clssurya"
-app_title = "CL Surya"
+app_title = "CLS Surya"
 app_publisher = "Dilip"
-app_description = "CL Surya ERP"
+app_description = "CLS Surya ERP"
 app_email = "dilip@example.com"
 app_license = "MIT"
 

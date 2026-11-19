@@ -1,0 +1,129 @@
+{
+ "doctype": "DocType",
+ "name": "Coating Log",
+ "module": "Clssurya",
+ "engine": "InnoDB",
+ "custom": 0,
+ "istable": 0,
+ "issingle": 0,
+ "editable_grid": 1,
+ "track_changes": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "autoname": "format:COAT-{YYYY}-{#####}",
+ "fields": [
+  {
+   "fieldname": "roll_id",
+   "fieldtype": "Data",
+   "label": "Roll ID / Roll Reference",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "coating_date",
+   "fieldtype": "Date",
+   "label": "Coating Date",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "hub_1046m_kg",
+   "fieldtype": "Float",
+   "label": "HUB 1046M (KG)",
+   "precision": "4"
+  },
+  {
+   "fieldname": "cl_501_kg",
+   "fieldtype": "Float",
+   "label": "CL-501 (KG)",
+   "precision": "4"
+  },
+  {
+   "fieldname": "tolnue_kg",
+   "fieldtype": "Float",
+   "label": "TOLNUE (KG)",
+   "precision": "4"
+  },
+  {
+   "fieldname": "coating_total_kg",
+   "fieldtype": "Float",
+   "label": "Total Coating Material (KG)",
+   "precision": "4",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "roll_meters_coated",
+   "fieldtype": "Float",
+   "label": "Roll Meters Coated",
+   "precision": "2",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "machine",
+   "fieldtype": "Link",
+   "label": "Machine",
+   "options": "CNC Machine"
+  },
+  {
+   "fieldname": "operator",
+   "fieldtype": "Data",
+   "label": "Operator / Employee",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "shift",
+   "fieldtype": "Select",
+   "label": "Shift",
+   "options": "Morning\nEvening\nNight",
+   "default": "Morning",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  }
+ ],
+ "field_order": [
+  "roll_id",
+  "coating_date",
+  "hub_1046m_kg",
+  "cl_501_kg",
+  "tolnue_kg",
+  "coating_total_kg",
+  "roll_meters_coated",
+  "machine",
+  "operator",
+  "shift",
+  "remarks"
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  },
+  {
+   "role": "CS Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  },
+  {
+   "role": "CS Production",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  },
+  {
+   "role": "CS Store",
+   "read": 1
+  }
+ ]
+}

@@ -13,9 +13,15 @@ class SalesOrder(Document):
     # -----------------------------------------------------------------
     def validate(self):
         before = self.get_doc_before_save()
-        if before and before.status != "Pending Approval":
+        if before and before.status not in ("Pending Approval", "Approved"):
             frappe.throw(_("Only orders pending approval can be edited."))
-        self.status = "Pending Approval"
+        if self.quotation or getattr(self.flags, "auto_approve", False):
+            self.status = "Approved"
+            if not getattr(self, "approved_by", None):
+                self.approved_by = frappe.session.user
+                self.approved_on = now_datetime()
+        elif not before:
+            self.status = "Pending Approval"
         if not self.items:
             frappe.throw(_("Add at least one item."))
 

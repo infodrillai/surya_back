@@ -1,7 +1,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import cint, flt, getdate, today
+from frappe.utils import cint, flt, getdate, today, now_datetime
 
 from clssurya.utils.stock_service import inventory_price
 from clssurya.utils.quotation_versions import get_family_root, get_latest_version
@@ -33,26 +33,44 @@ class Quotation(Document):
             frappe.throw(_("GST must be between 0 and 100%."))
 
         subtotal = 0.0
+        item_tax_amount = 0.0
         below_cost = 0
 
         for row in self.items:
             if flt(row.quantity) <= 0:
                 frappe.throw(_("Row {0}: quantity must be greater than zero.").format(row.idx))
 
+            item_discount_percent = flt(row.item_discount_percent)
+            row_gst_percent = flt(row.gst_percent)
+            if not 0 <= item_discount_percent <= 100:
+                frappe.throw(_("Row {0}: item discount must be between 0 and 100%.").format(row.idx))
+            if not 0 <= row_gst_percent <= 100:
+                frappe.throw(_("Row {0}: GST must be between 0 and 100%.").format(row.idx))
+
             row.uom = frappe.db.get_value("Product", row.product, "uom")
             row.production_cost = inventory_price(row.product, "Finished")
-
-            row.amount = flt(row.quantity) * flt(row.rate)
-            row.below_cost = int(flt(row.rate) < flt(row.production_cost))
+            gross_amount = flt(row.quantity) * flt(row.rate)
+            row.item_discount_amount = gross_amount * item_discount_percent / 100.0
+            row.amount = gross_amount - row.item_discount_amount
+            row.below_cost = int(
+                (flt(row.rate) / (1 + row_gst_percent / 100.0))
+                * (1 - item_discount_percent / 100.0)
+                < flt(row.production_cost)
+            )
             below_cost = below_cost or row.below_cost
             subtotal += flt(row.amount)
+            if row_gst_percent:
+                item_tax_amount += flt(row.amount) * row_gst_percent / (100.0 + row_gst_percent)
 
         discount_amount = subtotal * discount_percent / 100.0
         packing_charges = flt(self.packing_charges)
         transport_charges = flt(self.transport_charges)
 
         taxable_item_amount = max(0.0, subtotal - discount_amount)
-        taxable_amount = taxable_item_amount + packing_charges + transport_charges
+        charges_taxable = packing_charges + transport_charges
+        charges_tax = charges_taxable * gst_percent / 100.0
+        item_tax_amount *= 1 - discount_percent / 100.0
+        tax_amount = item_tax_amount + charges_tax
 
         # GST Calculation: Determine intra-state vs inter-state
         customer_state = ""
@@ -78,17 +96,16 @@ class Quotation(Document):
             is_intra = True
 
         if is_intra:
-            half_rate = gst_percent / 2.0
-            cgst = taxable_amount * half_rate / 100.0
-            sgst = taxable_amount * half_rate / 100.0
+            cgst = tax_amount / 2.0
+            sgst = tax_amount / 2.0
             igst = 0.0
         else:
             cgst = 0.0
             sgst = 0.0
-            igst = taxable_amount * gst_percent / 100.0
+            igst = tax_amount
 
-        tax_amount = cgst + sgst + igst
-        grand_total = taxable_amount + tax_amount
+        grand_total = taxable_item_amount + charges_taxable + charges_tax
+        taxable_amount = grand_total - tax_amount
 
         self.subtotal = subtotal
         self.total_amount = subtotal
@@ -150,6 +167,13 @@ class Quotation(Document):
         return self.name
 
     @frappe.whitelist()
+    def reject(self):
+        if self.status in ("Accepted", "Superseded"):
+            frappe.throw(_("A {0} quotation cannot be rejected.").format(self.status))
+        self.db_set("status", "Rejected")
+        return self.name
+
+    @frappe.whitelist()
     def make_sales_order(self):
         if self.status != "Approved":
             frappe.throw(_("Only an approved quotation can create a Sales Order."))
@@ -163,6 +187,9 @@ class Quotation(Document):
             "customer": self.customer,
             "order_date": today(),
             "quotation": self.name,
+            "status": "Approved",
+            "approved_by": frappe.session.user,
+            "approved_on": now_datetime(),
             "subtotal": flt(self.subtotal or self.total_amount),
             "packing_charges": flt(getattr(self, "packing_charges", 0) or 0),
             "transport_charges": flt(getattr(self, "transport_charges", 0) or 0),
@@ -177,11 +204,17 @@ class Quotation(Document):
                 {
                     "product": row.product,
                     "quantity": row.quantity,
-                    "rate": row.rate,
+                    "rate": flt(row.rate) * (1 - flt(row.item_discount_percent) / 100.0),
                 }
                 for row in self.items
             ],
         })
+        sales_order.flags.auto_approve = True
         sales_order.insert()
+        sales_order.db_set({
+            "status": "Approved",
+            "approved_by": frappe.session.user,
+            "approved_on": now_datetime(),
+        })
         self.db_set("status", "Accepted")
         return sales_order.name

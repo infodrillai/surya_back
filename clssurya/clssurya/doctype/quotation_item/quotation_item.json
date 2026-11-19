@@ -12,7 +12,15 @@
   "rate",
   "amount",
   "below_cost",
-  "pr"
+  "pr",
+  "product_code",
+  "production_code",
+  "company_code",
+  "competitor_company_code",
+  "last_selling_price",
+  "gst_percent",
+  "item_discount_percent",
+  "item_discount_amount"
  ],
  "fields": [
   {
@@ -70,6 +78,61 @@
    "fieldtype": "Float",
    "label": "PR (%)",
    "precision": "2",
+   "read_only": 1
+  },
+  {
+   "fieldname": "product_code",
+   "fieldtype": "Data",
+   "label": "Product Code",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "production_code",
+   "fieldtype": "Data",
+   "label": "Production Code",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "company_code",
+   "fieldtype": "Data",
+   "label": "Company Code",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "competitor_company_code",
+   "fieldtype": "Data",
+   "label": "Competitor Company Code",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "last_selling_price",
+   "fieldtype": "Currency",
+   "label": "Last Selling Price",
+   "read_only": 1,
+   "in_list_view": 1,
+   "precision": "2"
+  },
+  {
+   "fieldname": "gst_percent",
+   "fieldtype": "Percent",
+   "label": "GST (%)",
+   "default": "0"
+  },
+  {
+   "fieldname": "item_discount_percent",
+   "fieldtype": "Percent",
+   "label": "Item Discount (%)",
+   "default": "0"
+  },
+  {
+   "fieldname": "item_discount_amount",
+   "fieldtype": "Currency",
+   "label": "Item Discount Amount",
+   "precision": "9",
    "read_only": 1
   }
  ],

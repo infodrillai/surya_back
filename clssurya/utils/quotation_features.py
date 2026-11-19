@@ -270,18 +270,66 @@ def product_references(product):
 def _build_quotation_html(doc):
     """Generates standard HTML layout for quotation PDF."""
     company_name = frappe.conf.get("company_name") or "CL Surya Enterprises"
+    
+    items = doc.items or []
+    discounted_items = [i for i in items if flt(getattr(i, 'item_discount_percent', 0)) > 0]
+    discounted_count = len(discounted_items)
+    show_discount_col = discounted_count > 1
+
     items_rows = ""
-    for idx, item in enumerate(doc.items, 1):
+    for idx, item in enumerate(items, 1):
+        product_image = getattr(item, 'image', '') or ''
+        if not product_image and item.product:
+            try:
+                product_image = frappe.db.get_value("Product", item.product, "image") or ""
+            except Exception:
+                product_image = ""
+
+        item_disc_pct = flt(getattr(item, 'item_discount_percent', 0))
+        gross_amt = flt(getattr(item, 'gross_amount', 0)) or (flt(item.quantity) * flt(item.rate))
+        item_disc_amt = flt(getattr(item, 'item_discount_amount', 0)) or (gross_amt * item_disc_pct / 100.0)
+        net_amt = flt(getattr(item, 'amount', 0)) or (gross_amt - item_disc_amt)
+
+        image_html = f"""<div style="width: 38px; height: 38px; min-width: 38px; border: 1px solid #ddd; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; overflow: hidden; background: #fafafa; margin-right: 8px; vertical-align: top;"><img src="{product_image}" style="width: 100%; height: 100%; object-fit: contain;" /></div>""" if product_image else """<div style="width: 38px; height: 38px; min-width: 38px; border: 1px solid #ddd; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; overflow: hidden; background: #fafafa; margin-right: 8px; vertical-align: top; font-size: 8px; color: #999;">—</div>"""
+
+        single_disc_html = ""
+
+        disc_td = f"""<td style="padding: 6px; border: 1px solid #ddd; text-align: right; color: #16a34a; font-weight: 600;">{f"{item_disc_pct:.1f}%" if item_disc_pct > 0 else "—"}</td>""" if show_discount_col else ""
+
         items_rows += f"""
         <tr>
             <td style="padding: 6px; border: 1px solid #ddd; text-align: center;">{idx}</td>
-            <td style="padding: 6px; border: 1px solid #ddd;"><b>{item.product}</b></td>
+            <td style="padding: 6px; border: 1px solid #ddd;">
+                <table style="border-collapse: collapse; width: 100%; border: none;">
+                    <tr>
+                        <td style="width: 46px; border: none; padding: 0; vertical-align: top;">{image_html}</td>
+                        <td style="border: none; padding: 0; vertical-align: top;">
+                            <b>{item.product}</b>
+                            {getattr(item, 'description', '') and f"<div style='font-size: 10px; color: #666;'>{item.description}</div>" or ""}
+                            {single_disc_html}
+                        </td>
+                    </tr>
+                </table>
+            </td>
             <td style="padding: 6px; border: 1px solid #ddd; text-align: center;">{item.uom or 'PCS'}</td>
             <td style="padding: 6px; border: 1px solid #ddd; text-align: right;">{flt(item.quantity):,.2f}</td>
             <td style="padding: 6px; border: 1px solid #ddd; text-align: right;">₹{flt(item.rate):,.2f}</td>
-            <td style="padding: 6px; border: 1px solid #ddd; text-align: right;">₹{flt(item.amount):,.2f}</td>
+            {disc_td}
+            <td style="padding: 6px; border: 1px solid #ddd; text-align: right; font-weight: bold;">₹{net_amt:,.2f}</td>
         </tr>
         """
+
+    disc_th = """<th style="width: 10%; text-align: right;">Discount</th>""" if show_discount_col else ""
+
+    single_disc_item = discounted_items[0] if discounted_count == 1 else None
+    single_item_disc_row = ""
+    if single_disc_item:
+        s_name = getattr(single_disc_item, 'product', '')
+        s_pct = flt(getattr(single_disc_item, 'item_discount_percent', 0))
+        s_gross = flt(getattr(single_disc_item, 'gross_amount', 0)) or (flt(single_disc_item.quantity) * flt(single_disc_item.rate))
+        s_amt = flt(getattr(single_disc_item, 'item_discount_amount', 0)) or (s_gross * s_pct / 100.0)
+        if s_amt > 0:
+            single_item_disc_row = f"<tr><td>Product Discount ({s_pct:.1f}% on {s_name}):</td><td style='text-align: right; color: #16a34a;'>-₹{s_amt:,.2f}</td></tr>"
 
     html = f"""
     <!DOCTYPE html>
@@ -297,8 +345,8 @@ def _build_quotation_html(doc):
             .meta-table {{ width: 100%; margin-bottom: 20px; }}
             .items-table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; }}
             .items-table th {{ background: #f1f5f9; padding: 8px; border: 1px solid #ddd; font-weight: bold; text-align: left; }}
-            .totals-table {{ width: 45%; float: right; border-collapse: collapse; }}
-            .totals-table td {{ padding: 6px; border: 1px solid #ddd; }}
+            .totals-table {{ width: 48%; float: right; border-collapse: collapse; margin-top: 10px; }}
+            .totals-table td {{ padding: 6px 10px; border: 1px solid #ddd; }}
         </style>
     </head>
     <body>
@@ -323,10 +371,11 @@ def _build_quotation_html(doc):
             <thead>
                 <tr>
                     <th style="width: 5%; text-align: center;">#</th>
-                    <th style="width: 45%;">Item / Product</th>
-                    <th style="width: 10%; text-align: center;">UOM</th>
-                    <th style="width: 12%; text-align: right;">Qty</th>
-                    <th style="width: 14%; text-align: right;">Rate</th>
+                    <th>Item / Product</th>
+                    <th style="width: 8%; text-align: center;">UOM</th>
+                    <th style="width: 10%; text-align: right;">Qty</th>
+                    <th style="width: 12%; text-align: right;">Rate</th>
+                    {disc_th}
                     <th style="width: 14%; text-align: right;">Amount</th>
                 </tr>
             </thead>
@@ -335,13 +384,13 @@ def _build_quotation_html(doc):
             </tbody>
         </table>
         <table class="totals-table">
-            <tr><td>Subtotal:</td><td style="text-align: right;">₹{flt(doc.subtotal):,.2f}</td></tr>
-            <tr><td>Packing Charges:</td><td style="text-align: right;">₹{flt(getattr(doc, 'packing_charges', 0)):,.2f}</td></tr>
-            <tr><td>Transport Charges:</td><td style="text-align: right;">₹{flt(getattr(doc, 'transport_charges', 0)):,.2f}</td></tr>
-            <tr><td>Discount ({flt(doc.discount_percent):.1f}%):</td><td style="text-align: right;">-₹{flt(doc.discount_amount):,.2f}</td></tr>
-            <tr><td>Taxable Amount:</td><td style="text-align: right;">₹{flt(doc.taxable_amount):,.2f}</td></tr>
+            <tr><td>Item Subtotal:</td><td style="text-align: right;">₹{flt(doc.subtotal):,.2f}</td></tr>
+            {single_item_disc_row}
+            <tr><td>Overall Quotation Discount ({flt(doc.discount_percent):.1f}%):</td><td style="text-align: right;">-₹{flt(doc.discount_amount):,.2f}</td></tr>
+            {f"<tr><td>Packing Charges:</td><td style='text-align: right;'>₹{flt(getattr(doc, 'packing_charges', 0)):,.2f}</td></tr>" if flt(getattr(doc, 'packing_charges', 0)) > 0 else ""}
+            {f"<tr><td>Transport Charges:</td><td style='text-align: right;'>₹{flt(getattr(doc, 'transport_charges', 0)):,.2f}</td></tr>" if flt(getattr(doc, 'transport_charges', 0)) > 0 else ""}
             <tr><td>GST Amount:</td><td style="text-align: right;">₹{flt(doc.tax_amount):,.2f}</td></tr>
-            <tr style="font-weight: bold; background: #f8fafc;"><td>Grand Total:</td><td style="text-align: right; color: #0f766e;">₹{flt(doc.grand_total):,.2f}</td></tr>
+            <tr style="font-weight: bold; background: #f8fafc;"><td>Grand Total:</td><td style="text-align: right; color: #0f766e; font-size: 14px;">₹{flt(doc.grand_total):,.2f}</td></tr>
         </table>
     </body>
     </html>

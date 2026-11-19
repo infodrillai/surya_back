@@ -137,6 +137,14 @@
    "options": "CNC Machine"
   },
   {
+   "fieldname": "shift",
+   "fieldtype": "Select",
+   "label": "Shift",
+   "options": "Morning\nEvening\nNight",
+   "default": "Morning",
+   "in_list_view": 1
+  },
+  {
    "fieldname": "input_qty",
    "fieldtype": "Float",
    "label": "Input Quantity",
@@ -226,6 +234,7 @@
   "operator",
   "operation",
   "machine",
+  "shift",
   "input_qty",
   "accepted_qty",
   "rejected_qty",
@@ -263,6 +272,12 @@
   {
    "role": "CS Store",
    "read": 1
+  },
+  {
+   "role": "PU Operator",
+   "read": 1,
+   "write": 1,
+   "create": 1
   }
  ],
  "autoname": "format:S2B-{#####}"
