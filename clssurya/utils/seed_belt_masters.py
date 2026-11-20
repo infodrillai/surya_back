@@ -209,19 +209,20 @@ def seed():
                 {"product": "RAW-ALUM-RIVET", "calculation_type": "Quantity", "ratio": 4.0},
             ])
 
-        if not frappe.db.exists("BOM", b["code"]):
+        if not frappe.db.exists("Belt Production", b["code"]):
             frappe.get_doc({
-                "doctype": "BOM",
+                "doctype": "Belt Production",
                 "product": b["code"],
                 "total_steps": 3,
                 "stage2_items": [
                     {"product": roll_code, "ratio": b["ratio"]},
                 ],
                 "stage3_items": stage3_items,
+                "stage4_charges": [],
             }).insert(ignore_permissions=True)
 
     frappe.db.commit()
-    print("✓ All 7 real-world sample belts and BOMs seeded successfully!")
+    print("✓ All 7 real-world sample belts and Belt Production recipes seeded successfully!")
 
 if __name__ == "__main__":
     seed()

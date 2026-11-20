@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import flt, now_datetime, nowdate
+from frappe.utils import flt, now_datetime
 from clssurya.utils.base import CompletableDocument
 from clssurya.utils.stock_service import inventory_price, post as stock_post, reverse as stock_reverse
 

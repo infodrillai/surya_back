@@ -39,6 +39,7 @@ def load_initial_masters_and_boms(filepath=None, force=False):
         "Charge": 0,
         "Product": 0,
         "BOM": 0,
+        "Belt Production": 0,
     }
 
     # 1. Prerequisite: Categories
@@ -133,6 +134,7 @@ def load_initial_masters_and_boms(filepath=None, force=False):
 
     # 6. BOMs
     existing_boms = set(frappe.db.get_all("BOM", pluck="name"))
+    existing_belt_productions = set(frappe.db.get_all("Belt Production", pluck="name")) if frappe.db.exists("DocType", "Belt Production") else set()
     for b in data.get("boms", []):
         prod = b.get("product")
         if not prod:
@@ -141,25 +143,31 @@ def load_initial_masters_and_boms(filepath=None, force=False):
         if prod not in existing_products and not frappe.db.exists("Product", prod):
             continue
 
-        if prod not in existing_boms:
-            doc = frappe.get_doc({
-                "doctype": "BOM",
-                "product": prod,
-                "total_steps": cint(b.get("total_steps", 3)),
-                "stage1_items": b.get("stage1_items", []),
-                "stage2_items": b.get("stage2_items", []),
-                "stage3_charges": b.get("stage3_charges", []),
-            })
+        product = frappe.db.get_value("Product", prod, ["product_type", "finished_good_type"], as_dict=True)
+        is_belt = bool(product and product.product_type in ("Finished", "Semi") and product.finished_good_type == "Belt")
+        doctype = "Belt Production" if is_belt else "BOM"
+        existing = existing_belt_productions if is_belt else existing_boms
+        body = {
+            "doctype": doctype,
+            "product": prod,
+            "total_steps": cint(b.get("total_steps", 4 if is_belt else 3)),
+            "stage1_items": b.get("stage1_items", b.get("belt_p1_items", [])),
+            "stage2_items": b.get("stage2_items", b.get("belt_p2_items", [])),
+            **({"stage3_items": b.get("stage3_items", b.get("belt_p3_items", []))} if is_belt else {}),
+            ("stage4_charges" if is_belt else "stage3_charges"): b.get("stage4_charges", b.get("stage3_charges", b.get("belt_p4_charges", []))),
+        }
+        if prod not in existing:
+            doc = frappe.get_doc(body)
             doc.flags.ignore_permissions = True
             doc.insert()
-            existing_boms.add(prod)
-            inserted_counts["BOM"] += 1
+            existing.add(prod)
+            inserted_counts[doctype] += 1
         elif force:
-            doc = frappe.get_doc("BOM", prod)
+            doc = frappe.get_doc(doctype, prod)
             doc.total_steps = cint(b.get("total_steps", doc.total_steps))
-            doc.set("stage1_items", b.get("stage1_items", []))
-            doc.set("stage2_items", b.get("stage2_items", []))
-            doc.set("stage3_charges", b.get("stage3_charges", []))
+            for fieldname in ("stage1_items", "stage2_items", "stage3_items", "stage4_charges", "stage3_charges"):
+                if fieldname in body:
+                    doc.set(fieldname, body[fieldname])
             doc.flags.ignore_permissions = True
             doc.save()
 
@@ -171,7 +179,7 @@ def load_initial_masters_and_boms(filepath=None, force=False):
         try:
             from clssurya.utils.versions import get_versions
             versions = get_versions()
-            for dt in ["UOM", "Product", "BOM", "Category", "Process", "Charge"]:
+            for dt in ["UOM", "Product", "BOM", "Belt Production", "Category", "Process", "Charge"]:
                 versions[dt] = int(versions.get(dt, 0)) + 1
             frappe.db.set_single_value("Master Version", "versions", json.dumps(versions))
             frappe.db.commit()
@@ -185,7 +193,8 @@ def load_initial_masters_and_boms(filepath=None, force=False):
         f"Process: {inserted_counts['Process']}, "
         f"Charge: {inserted_counts['Charge']}, "
         f"Product: {inserted_counts['Product']}, "
-        f"BOM: {inserted_counts['BOM']}"
+        f"BOM: {inserted_counts['BOM']}, "
+        f"Belt Production: {inserted_counts['Belt Production']}"
     )
 
     return inserted_counts

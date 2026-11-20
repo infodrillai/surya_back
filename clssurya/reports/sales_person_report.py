@@ -8,9 +8,9 @@ Permissions:
 """
 
 import frappe
-from frappe.utils import flt, cstr
+from frappe.utils import flt
 from clssurya.utils.base import is_admin
-from clssurya.utils.sales_person import get_current_sales_person, is_sales_person
+from clssurya.utils.sales_person import get_current_sales_person
 
 
 def _clean_filter(val):

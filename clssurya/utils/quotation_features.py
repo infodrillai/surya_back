@@ -24,9 +24,10 @@ def download_pdf(name):
     html = _build_quotation_html(doc)
     try:
         pdf_bytes = get_pdf(html)
-    except Exception:
-        # Fallback to simple HTML-to-bytes if wkhtmltopdf has issues
-        pdf_bytes = html.encode("utf-8")
+    except OSError:
+        from weasyprint import HTML
+
+        pdf_bytes = HTML(string=html).write_pdf()
 
     b64_content = base64.b64encode(pdf_bytes).decode("utf-8")
 
@@ -269,7 +270,7 @@ def product_references(product):
 
 def _build_quotation_html(doc):
     """Generates standard HTML layout for quotation PDF."""
-    company_name = frappe.conf.get("company_name") or "CL Surya Enterprises"
+    company_name = frappe.conf.get("company_name") or "CLS Surya"
     
     items = doc.items or []
     discounted_items = [i for i in items if flt(getattr(i, 'item_discount_percent', 0)) > 0]
@@ -278,12 +279,37 @@ def _build_quotation_html(doc):
 
     items_rows = ""
     for idx, item in enumerate(items, 1):
+        # Resolve product image and embed it as a data URI for PDF generation
         product_image = getattr(item, 'image', '') or ''
         if not product_image and item.product:
             try:
                 product_image = frappe.db.get_value("Product", item.product, "image") or ""
             except Exception:
                 product_image = ""
+        # If the image reference is not a full URL, turn it into a base64 data URI so the PDF renderer can embed it
+        if product_image and not (product_image.startswith('http://') or product_image.startswith('https://')):
+            try:
+                import os, mimetypes
+                # Try to fetch the File doc first
+                if frappe.db.exists('File', product_image):
+                    file_doc = frappe.get_doc('File', product_image)
+                    file_path = file_doc.file_path if hasattr(file_doc, 'file_path') else None
+                else:
+                    # Assume it's a /files/... path relative to public folder
+                    if product_image.startswith('/files/'):
+                        from frappe.utils import get_site_path
+                        file_path = get_site_path('public', product_image.lstrip('/'))
+                    else:
+                        file_path = None
+                if file_path and os.path.exists(file_path):
+                    with open(file_path, 'rb') as f:
+                        encoded = base64.b64encode(f.read()).decode()
+                    mime = mimetypes.guess_type(file_path)[0] or 'image/png'
+                    product_image = f"data:{mime};base64,{encoded}"
+                else:
+                    product_image = ''
+            except Exception:
+                product_image = ''
 
         item_disc_pct = flt(getattr(item, 'item_discount_percent', 0))
         gross_amt = flt(getattr(item, 'gross_amount', 0)) or (flt(item.quantity) * flt(item.rate))

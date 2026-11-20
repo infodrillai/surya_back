@@ -1,0 +1,94 @@
+{
+ "doctype": "DocType",
+ "name": "Currency",
+ "module": "Clssurya",
+ "engine": "InnoDB",
+ "custom": 0,
+ "istable": 0,
+ "issingle": 0,
+ "editable_grid": 0,
+ "track_changes": 0,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "fields": [
+  {
+   "fieldname": "currency_name",
+   "fieldtype": "Data",
+   "label": "Currency Name",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "currency_code",
+   "fieldtype": "Data",
+   "label": "Currency Code",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "symbol",
+   "fieldtype": "Data",
+   "label": "Symbol",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enabled",
+   "default": "1",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "number_format",
+   "fieldtype": "Data",
+   "label": "Number Format"
+  },
+  {
+   "fieldname": "smallest_currency_fraction",
+   "fieldtype": "Float",
+   "label": "Smallest Currency Fraction"
+  },
+  {
+   "fieldname": "is_default",
+   "fieldtype": "Check",
+   "label": "Default Currency"
+  }
+ ],
+ "field_order": [
+  "currency_name",
+  "currency_code",
+  "symbol",
+  "enabled",
+  "number_format",
+  "smallest_currency_fraction",
+  "is_default"
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  },
+  {
+   "role": "CS Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  },
+  {
+   "role": "CS Store",
+   "read": 1
+  },
+  {
+   "role": "CS Production",
+   "read": 1
+  },
+  {
+   "role": "CS Sales",
+   "read": 1
+  }
+ ]
+}

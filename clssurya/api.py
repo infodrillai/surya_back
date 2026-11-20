@@ -5,6 +5,7 @@ from frappe.utils import cint, flt, nowdate, getdate
 from clssurya.constants import COMPLETABLE, MASTERS
 from clssurya.utils.base import is_admin, require_admin
 from clssurya.utils.sales_person import get_current_sales_person, is_sales_person
+from clssurya.utils.stage import stage1_carry_cost
 from clssurya.utils.stock_service import inventory_price
 from clssurya.utils.versions import get_versions
 
@@ -67,11 +68,20 @@ def get_masters(only=None):
     versions = get_versions()
     data = {}
     for dt in names:
-        if dt == "BOM":
-            data[dt] = [frappe.get_doc("BOM", n).as_dict() for n in frappe.get_all("BOM", pluck="name")]
+        if dt in ("BOM", "Belt Production"):
+            data[dt] = [frappe.get_doc(dt, n).as_dict() for n in frappe.get_all(dt, pluck="name")]
         else:
             data[dt] = frappe.get_all(dt, fields=["*"], limit_page_length=0)
     return {"data": data, "versions": {dt: int(versions.get(dt, 0)) for dt in names}}
+
+
+def _get_belt_recipe(product):
+    """Prefer the dedicated belt recipe, with the old BOM as a migration fallback."""
+    if frappe.db.exists("DocType", "Belt Production") and frappe.db.exists("Belt Production", product):
+        return frappe.get_doc("Belt Production", product)
+    if frappe.db.exists("BOM", product):
+        return frappe.get_doc("BOM", product)
+    return None
 
 
 @frappe.whitelist()
@@ -80,12 +90,13 @@ def get_stage_rows(product, qty, stage, size=None):
     if not frappe.has_permission(f"Stage {cint(stage)} Batch", "read"):
         raise frappe.PermissionError
     stage, qty = cint(stage), flt(qty)
-    bom = frappe.get_doc("BOM", product)
-    if cint(bom.total_steps) < stage:
-        frappe.throw(_("{0} has only {1} step(s) in its BOM.").format(product, bom.total_steps))
-
     prod_doc = frappe.db.get_value("Product", product, ["product_type", "finished_good_type", "band_type", "belt_length", "hole"], as_dict=True)
-    is_belt = bool(prod_doc and prod_doc.product_type == "Finished" and prod_doc.finished_good_type == "Belt")
+    is_belt = bool(prod_doc and prod_doc.product_type in ("Finished", "Semi") and prod_doc.finished_good_type == "Belt")
+    bom = _get_belt_recipe(product) if is_belt else (frappe.get_doc("BOM", product) if frappe.db.exists("BOM", product) else None)
+    if not bom:
+        frappe.throw(_("No production recipe was found for {0}.").format(product))
+    if cint(bom.total_steps) < stage:
+        frappe.throw(_("{0} has only {1} step(s) in its production recipe.").format(product, bom.total_steps))
 
     def row(**kw):
         per, price = flt(kw["per_unit_utilization"]), flt(kw["unit_price"])
@@ -100,8 +111,9 @@ def get_stage_rows(product, qty, stage, size=None):
             pass
         else:
             prev = "Stage 1" if stage == 2 else "Stage 2"
+            price = stage1_carry_cost(product, bom) if stage == 2 else inventory_price(product, prev)
             out["items"].append(row(is_carried_in=1, process=None, product=product, per_unit_utilization=1,
-                                    unit_price=inventory_price(product, prev), source_stage=prev))
+                                    unit_price=price, source_stage=prev))
     if stage == 1:
         for r in bom.stage1_items:
             out["wastage_product"] = out["wastage_product"] or r.wastage_product
@@ -139,7 +151,7 @@ def get_stage_rows(product, qty, stage, size=None):
                 out["items"].append(row(is_carried_in=0, process=r.process, product=r.product,
                                         per_unit_utilization=r.per_unit_utilization, unit_price=inventory_price(r.product, "Raw"),
                                         source_stage="Raw"))
-    else:
+    elif stage in (3, 4):
         if is_belt:
             hole_count = flt(prod_doc.hole) if (prod_doc and prod_doc.hole) else 0.0
             for r in (bom.get("stage3_items") or []):
@@ -153,8 +165,9 @@ def get_stage_rows(product, qty, stage, size=None):
                 out["items"].append(row(is_carried_in=0, process=r.process, product=r.product,
                                         per_unit_utilization=per_u, unit_price=comp_price,
                                         ratio=ratio_val, calculation_type=calc_type, source_stage="Raw"))
+        charge_rows = (bom.get("stage4_charges") or bom.get("stage3_charges") or []) if is_belt else (bom.get("stage3_charges") or [])
         out["charges"] = [{"charge": c.charge, "per_unit_price": c.per_unit_price, "amount": flt(c.per_unit_price) * qty}
-                          for c in bom.stage3_charges]
+                          for c in charge_rows]
     return out
 
 
@@ -164,6 +177,26 @@ def get_stock_by_stage(product=None):
         raise frappe.PermissionError
     filters = {"product": product} if product else {}
     return frappe.get_all("Inventory", filters=filters, fields=["product", "stage", "stock", "total_amount", "unit_price"])
+
+
+def _belt_recipe_unit_cost(recipe):
+    stage1 = sum(
+        flt(row.per_unit_utilization) * (inventory_price(row.product, "Raw") or inventory_price(row.product, "Stage 1"))
+        for row in recipe.get("stage1_items") or []
+    )
+    stage2 = sum(
+        flt(row.per_unit_utilization or row.ratio) * (inventory_price(row.product, "Stage 1") or inventory_price(row.product, "Raw"))
+        for row in recipe.get("stage2_items") or []
+    )
+    stage3 = sum(
+        flt(row.per_unit_utilization) * inventory_price(row.product, "Raw")
+        for row in recipe.get("stage3_items") or []
+    )
+    charges = sum(
+        flt(row.per_unit_price)
+        for row in (recipe.get("stage4_charges") or recipe.get("stage3_charges") or [])
+    )
+    return round(stage1 + stage2 + stage3 + charges, 4)
 
 
 @frappe.whitelist()
@@ -189,11 +222,8 @@ def get_finished_cost():
                 is_belt = (p_info.get("finished_good_type") == "Belt")
 
                 if is_belt:
-                    s1 = sum(flt(r.per_unit_utilization) * (flt(frappe.db.get_value("Inventory", {"product": r.product, "stage": "Raw"}, "unit_price")) or 0) for r in (bom_doc.stage1_items or []))
-                    s2 = sum(flt(r.per_unit_utilization) * (flt(frappe.db.get_value("Inventory", {"product": r.product, "stage": "Raw"}, "unit_price")) or 0) for r in (bom_doc.stage2_items or []))
-                    s3 = sum(flt(r.per_unit_utilization) * (flt(frappe.db.get_value("Inventory", {"product": r.product, "stage": "Raw"}, "unit_price")) or 0) for r in (bom_doc.get("stage3_items") or []))
-                    chg = sum(flt(c.per_unit_price) for c in (bom_doc.stage3_charges or []))
-                    bom_cost = round(s1 + s2 + s3 + chg, 4)
+                    recipe = _get_belt_recipe(prod) or bom_doc
+                    bom_cost = _belt_recipe_unit_cost(recipe)
                 else:
                     s1 = sum(flt(r.per_unit_utilization) * (flt(frappe.db.get_value("Inventory", {"product": r.product, "stage": "Raw"}, "unit_price")) or 0) for r in (bom_doc.stage1_items or []))
                     s2 = sum(flt(r.per_unit_utilization) * (flt(frappe.db.get_value("Inventory", {"product": r.product, "stage": "Raw"}, "unit_price")) or 0) for r in (bom_doc.stage2_items or []))
@@ -202,9 +232,23 @@ def get_finished_cost():
                     bom_cost = round(s1 + s2 + rej + chg, 4)
 
                 if bom_cost > 0:
-                    out[prod] = {"stock": 0.0, "unit_price": bom_cost, "source": "BOM"}
+                    out[prod] = {"stock": 0.0, "unit_price": bom_cost, "source": "Belt Production" if is_belt and recipe.doctype == "Belt Production" else "BOM"}
             except Exception:
                 pass
+    except Exception:
+        pass
+
+    # Dedicated belt recipes can exist without a legacy BOM document.
+    try:
+        if frappe.db.exists("DocType", "Belt Production"):
+            for recipe in frappe.get_all("Belt Production", fields=["name", "product"]):
+                try:
+                    doc = frappe.get_doc("Belt Production", recipe.name)
+                    unit_cost = _belt_recipe_unit_cost(doc)
+                    if unit_cost > 0:
+                        out[doc.product] = {"stock": 0.0, "unit_price": unit_cost, "source": "Belt Production"}
+                except Exception:
+                    continue
     except Exception:
         pass
 
@@ -327,8 +371,12 @@ def get_inventory_bifurcation(product=None):
         unit_price = flt(item.unit_price)
         total_amount = flt(item.total_amount) or (stock * unit_price)
         key = f"{item.product}_{item.stage}"
+        p_info = frappe.db.get_value("Product", item.product, ["product_type", "finished_good_type", "hole", "belt_length"], as_dict=True)
+        is_belt = bool(p_info and p_info.product_type in ("Finished", "Semi") and p_info.finished_good_type == "Belt")
+        has_recipe = frappe.db.exists("Belt Production", item.product) if is_belt and frappe.db.exists("DocType", "Belt Production") else False
+        has_recipe = has_recipe or frappe.db.exists("BOM", item.product)
 
-        if item.stage == "Raw" or not frappe.db.exists("BOM", item.product):
+        if item.stage == "Raw" or not has_recipe:
             pname = frappe.db.get_value("Product", item.product, "product_name") or item.product
             results[key] = {
                 "product": item.product,
@@ -358,10 +406,9 @@ def get_inventory_bifurcation(product=None):
             }
             continue
 
-        bom = frappe.get_doc("BOM", item.product)
+        bom = _get_belt_recipe(item.product) if is_belt else frappe.get_doc("BOM", item.product)
 
-        p_info = frappe.db.get_value("Product", item.product, ["product_type", "finished_good_type", "hole", "belt_length"], as_dict=True)
-        if p_info and p_info.product_type == "Finished" and p_info.finished_good_type == "Belt":
+        if is_belt:
             # 1. Roll material item from stage 2
             roll_items = []
             roll_unit = 0.0
@@ -443,7 +490,7 @@ def get_inventory_bifurcation(product=None):
 
             s3_charges = []
             s3_charge_unit = 0.0
-            for c in bom.stage3_charges:
+            for c in (bom.get("stage4_charges") or bom.get("stage3_charges") or []):
                 pu = flt(c.per_unit_price)
                 s3_charges.append({
                     "name": c.charge,
@@ -1939,9 +1986,12 @@ def get_monthly_production_report(
     # Include any product that had production batches, confirmed dispatches, or customer returns in this period.
     # Handle products with zero available stock but non-zero historical production.
     candidate_products = set()
-    for b in stage_batches:
-        if b.get("product"):
-            candidate_products.add(b.get("product"))
+    batches_by_product = {}
+    for batch in stage_batches:
+        product_id = batch.get("product")
+        if product_id:
+            candidate_products.add(product_id)
+            batches_by_product.setdefault(product_id, []).append(batch)
     for p_id in dispatches_by_product:
         candidate_products.add(p_id)
     for p_id in returns_by_product:
@@ -1983,7 +2033,7 @@ def get_monthly_production_report(
         total_steps = cint(p_info.get("total_steps") or 3)
         prod_c = p_info.get("production_code") or "—"
 
-        p_batches = [b for b in stage_batches if b.get("product") == p_id]
+        p_batches = batches_by_product.get(p_id, [])
         p_dispatches = dispatch_details_by_product.get(p_id, [])
         p_returns = return_details_by_product.get(p_id, [])
 
@@ -2877,6 +2927,37 @@ def get_datewise_production_inventory(from_date=None, to_date=None, product=None
 
     all_records.sort(key=lambda x: (x["production_date"], x["batch_no"]), reverse=True)
     return all_records
+
+
+@frappe.whitelist(methods=["POST"])
+def move_to_stage3(product, name=None):
+    """Move finished inventory for a product back to Stage 3."""
+    if not frappe.has_permission("Inventory", "write"):
+        raise frappe.PermissionError
+
+    filters = {"product": product, "stage": "Finished"}
+    if name:
+        filters["name"] = name
+
+    records = frappe.get_all(
+        "Inventory",
+        filters=filters,
+        fields=["name", "product", "stage"],
+        limit_page_length=0,
+    )
+    if not records:
+        frappe.throw(_("No Finished Goods inventory record found for {0}.").format(product))
+
+    for row in records:
+        doc = frappe.get_doc("Inventory", row.name)
+        doc.stage = "Stage 3"
+        doc.save()
+
+    return {
+        "success": True,
+        "message": _("{0} moved to Stage 3 inventory.").format(product),
+        "updated": len(records),
+    }
 
 
 @frappe.whitelist()
@@ -4847,6 +4928,78 @@ def get_bonding_coating_report(from_date=None, to_date=None, shift=None):
             "total_hub": sum(flt(r.get("hub_1046m_kg") or 0) for r in coating_rows),
             "total_cl501": sum(flt(r.get("cl_501_kg") or 0) for r in coating_rows),
             "total_tolnue": sum(flt(r.get("tolnue_kg") or 0) for r in coating_rows),
+        },
+    }
+
+
+@frappe.whitelist()
+def get_pu_production_report(from_date=None, to_date=None, product=None):
+    """Return stage-wise PU production batches for the production report."""
+    rows = []
+    stages = [
+        (1, "Stage 1 Batch", "Insert Making"),
+        (2, "Stage 2 Batch", "PU Casting"),
+        (3, "Stage 3 Batch", "CNC"),
+    ]
+    fields = [
+        "name", "product", "quantity", "posting_date", "production_code",
+        "status", "is_completed", "accepted_qty", "rejected_qty",
+        "wastage_qty", "batch_total", "unit_cost", "operator", "machine",
+        "shift", "remarks",
+    ]
+
+    for stage_no, doctype, stage_label in stages:
+        if not frappe.db.exists("DocType", doctype):
+            continue
+        filters = {"docstatus": ["!=", 2]}
+        if from_date:
+            filters["posting_date"] = [">=", str(from_date)[:10]]
+        batch_filters = dict(filters)
+        if to_date:
+            batch_filters["posting_date"] = ["between", [str(from_date or "1900-01-01")[:10], str(to_date)[:10]]] if from_date else ["<=", str(to_date)[:10]]
+        if product:
+            batch_filters["product"] = ["like", f"%{str(product).strip()}%"]
+        available_fields = {field.fieldname for field in frappe.get_meta(doctype).fields}
+        selected_fields = [field for field in fields if field == "name" or field in available_fields]
+        batches = frappe.get_all(doctype, filters=batch_filters, fields=selected_fields, order_by="posting_date desc, name desc", limit_page_length=5000)
+        for batch in batches:
+            qty = flt(batch.get("quantity"))
+            accepted = flt(batch.get("accepted_qty"))
+            if accepted <= 0:
+                accepted = max(0, qty - flt(batch.get("rejected_qty") or batch.get("wastage_qty")))
+            status = batch.get("status")
+            # Completing and reopening a PU batch update is_completed independently of status.
+            if status != "Cancelled":
+                if cint(batch.get("is_completed")):
+                    status = "Completed"
+                elif status == "Completed":
+                    status = "Draft"
+            rows.append({
+                **batch,
+                "stage_no": stage_no,
+                "stage_label": stage_label,
+                "produced_qty": qty,
+                "accepted_qty": accepted,
+                "rejected_qty": flt(batch.get("rejected_qty") or batch.get("wastage_qty")),
+                "status": status or "In Progress",
+            })
+
+    rows.sort(key=lambda row: (str(row.get("posting_date") or ""), str(row.get("name") or "")), reverse=True)
+    return {
+        "success": True,
+        "rows": rows,
+        "summary": {
+            "total_batches": len(rows),
+            "total_produced": sum(flt(row.get("produced_qty")) for row in rows),
+            "total_accepted": sum(flt(row.get("accepted_qty")) for row in rows),
+            "total_rejected": sum(flt(row.get("rejected_qty")) for row in rows),
+            "stage_totals": {
+                str(stage_no): {
+                    "batches": sum(1 for row in rows if row["stage_no"] == stage_no),
+                    "quantity": sum(flt(row.get("produced_qty")) for row in rows if row["stage_no"] == stage_no),
+                }
+                for stage_no, _, _ in stages
+            },
         },
     }
 

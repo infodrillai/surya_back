@@ -131,10 +131,10 @@ def run_tests():
     if not frappe.db.exists("Charge", "Punching Labour"):
         frappe.get_doc({"doctype": "Charge", "charge_name": "Punching Labour"}).insert(ignore_permissions=True)
 
-    # Create Belt BOM
-    if not frappe.db.exists("BOM", belt_code):
+    # Create dedicated Belt Production recipe
+    if not frappe.db.exists("Belt Production", belt_code):
         frappe.get_doc({
-            "doctype": "BOM",
+            "doctype": "Belt Production",
             "product": belt_code,
             "total_steps": 3,
             "stage2_items": [
@@ -143,12 +143,12 @@ def run_tests():
             "stage3_items": [
                 {"product": "RAW-RIVET-M4", "calculation_type": "Hole", "ratio": 2.0}, # 2 rivets per hole
             ],
-            "stage3_charges": [
+            "stage4_charges": [
                 {"charge": "Punching Labour", "per_unit_price": 20.0}
             ]
         }).insert(ignore_permissions=True)
 
-    print(f"[✓] Belt product {belt_code} and decoupled BOM created.")
+    print(f"[✓] Belt product {belt_code} and separate Belt Production recipe created.")
 
     # 6. Test get_stage_rows API for Stage 2 (Belt sizing)
     s2_rows = get_stage_rows(product=belt_code, qty=40, stage=2, size=2)

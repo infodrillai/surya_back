@@ -17,6 +17,30 @@ STAGE_DISPLAY = {
     "Finished": "Finished Goods",
 }
 
+
+def stage1_carry_cost(product, bom=None):
+    valuation = frappe.db.get_value(
+        "Inventory", {"product": product, "stage": "Stage 1"}, ["stock", "unit_price"], as_dict=True
+    )
+    if valuation and (flt(valuation.stock) > 0 or flt(valuation.unit_price) > 0):
+        return flt(valuation.unit_price)
+
+    batch_cost = frappe.db.get_value(
+        "Stage 1 Batch",
+        {"product": product, "is_completed": 1},
+        "unit_cost",
+        order_by="completed_on desc, name desc",
+    )
+    if batch_cost is not None:
+        return flt(batch_cost)
+
+    bom = bom if bom is not None else frappe.get_doc("BOM", product)
+    return sum(
+        flt(row.per_unit_utilization) * inventory_price(row.product, "Raw")
+        for row in bom.get("stage1_items") or []
+    )
+
+
 class StageBatch(CompletableDocument):
     """Shared logic for Stage 1/2/3 batches (PU and Belt flows)."""
 
@@ -49,7 +73,9 @@ class StageBatch(CompletableDocument):
 
             # Determine price based on source_stage or standard flow
             source_stage = r.get("source_stage")
-            if source_stage:
+            if self.STAGE == 2 and carried_in and not is_belt and source_stage in (None, "", "Stage 1"):
+                r.unit_price = stage1_carry_cost(r.product)
+            elif source_stage:
                 r.unit_price = inventory_price(r.product, source_stage)
             else:
                 r.unit_price = inventory_price(

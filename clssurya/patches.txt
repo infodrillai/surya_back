@@ -2,3 +2,5 @@
 
 [post_model_sync]
 clssurya.patches.v1_0.load_initial_masters_and_boms
+clssurya.patches.v1_1.migrate_belt_production
+clssurya.patches.v1_2.migrate_belt_production

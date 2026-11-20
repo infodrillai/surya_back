@@ -1,6 +1,6 @@
 # clssurya (Frappe backend)
 
-Standalone Frappe app (no ERPNext) for the CL Surya ERP: masters, purchase, 3-stage production batches,
+Standalone Frappe app (no ERPNext) for the CLS Surya ERP: masters, purchase, 3-stage production batches,
 quotation (versioned), sales order (admin approval), dispatch, weighted-average stock ledger.
 Targets Frappe v15, site `clssurya.local`.
 
