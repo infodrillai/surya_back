@@ -6,6 +6,15 @@ from clssurya.constants import COMPLETABLE, MASTERS
 from clssurya.utils.base import is_admin, require_admin
 from clssurya.utils.sales_person import get_current_sales_person, is_sales_person
 from clssurya.utils.stage import stage1_carry_cost
+from clssurya.utils.batch_tracking import (
+    expand_stage_source_rows,
+    get_available_source_batches,
+)
+
+
+def _production_stage_index(value):
+    digits = "".join(character for character in str(value or "") if character.isdigit())
+    return cint(digits)
 from clssurya.utils.stock_service import inventory_price
 from clssurya.utils.versions import get_versions
 
@@ -24,9 +33,12 @@ def _readable_masters():
     user = frappe.session.user
     if not user or user == "Guest":
         return []
+    # Backend deployments may be between code checkout and `bench migrate`.
+    # Never let one uninstalled DocType break sync for every installed master.
+    installed = [dt for dt in MASTERS if frappe.db.exists("DocType", dt)]
     if is_admin(user):
-        return MASTERS
-    return [dt for dt in MASTERS if dt in ("Currency", "UOM") or frappe.has_permission(dt, "read")]
+        return installed
+    return [dt for dt in installed if dt in ("Currency", "UOM") or frappe.has_permission(dt, "read")]
 
 
 @frappe.whitelist(allow_guest=True)
@@ -87,11 +99,13 @@ def _get_belt_recipe(product):
 @frappe.whitelist()
 def get_stage_rows(product, qty, stage, size=None):
     """BOM rows for a batch: per-unit utilization, total utilization, amount, per-unit amount."""
-    if not frappe.has_permission(f"Stage {cint(stage)} Batch", "read"):
-        raise frappe.PermissionError
     stage, qty = cint(stage), flt(qty)
     prod_doc = frappe.db.get_value("Product", product, ["product_type", "finished_good_type", "band_type", "belt_length", "hole"], as_dict=True)
     is_belt = bool(prod_doc and prod_doc.product_type in ("Finished", "Semi") and prod_doc.finished_good_type == "Belt")
+    if not frappe.has_permission(f"Stage {stage} Batch", "read") and not (
+        is_belt and frappe.has_permission("Belt Batch", "read")
+    ):
+        raise frappe.PermissionError
     bom = _get_belt_recipe(product) if is_belt else (frappe.get_doc("BOM", product) if frappe.db.exists("BOM", product) else None)
     if not bom:
         frappe.throw(_("No production recipe was found for {0}.").format(product))
@@ -110,7 +124,7 @@ def get_stage_rows(product, qty, stage, size=None):
             # Belt Stage 2 does not carry in the Belt product; it consumes Roll from Stage 1
             pass
         else:
-            prev = "Stage 1" if stage == 2 else "Stage 2"
+            prev = f"Stage {stage - 1}"
             price = stage1_carry_cost(product, bom) if stage == 2 else inventory_price(product, prev)
             out["items"].append(row(is_carried_in=1, process=None, product=product, per_unit_utilization=1,
                                     unit_price=price, source_stage=prev))
@@ -152,7 +166,7 @@ def get_stage_rows(product, qty, stage, size=None):
                                         per_unit_utilization=r.per_unit_utilization, unit_price=inventory_price(r.product, "Raw"),
                                         source_stage="Raw"))
     elif stage in (3, 4):
-        if is_belt:
+        if is_belt and stage == 3:
             hole_count = flt(prod_doc.hole) if (prod_doc and prod_doc.hole) else 0.0
             for r in (bom.get("stage3_items") or []):
                 ratio_val = flt(r.ratio) or 1.0
@@ -165,10 +179,51 @@ def get_stage_rows(product, qty, stage, size=None):
                 out["items"].append(row(is_carried_in=0, process=r.process, product=r.product,
                                         per_unit_utilization=per_u, unit_price=comp_price,
                                         ratio=ratio_val, calculation_type=calc_type, source_stage="Raw"))
-        charge_rows = (bom.get("stage4_charges") or bom.get("stage3_charges") or []) if is_belt else (bom.get("stage3_charges") or [])
+        charge_rows = (
+            (bom.get("stage4_charges") or bom.get("stage3_charges") or [])
+            if is_belt and stage == 4
+            else (bom.get("stage3_charges") or []) if is_belt
+            else (bom.get("stage3_charges") or [])
+        )
         out["charges"] = [{"charge": c.charge, "per_unit_price": c.per_unit_price, "amount": flt(c.per_unit_price) * qty}
                           for c in charge_rows]
+    out["items"] = expand_stage_source_rows(out["items"], stage, is_belt=is_belt)
     return out
+
+
+@frappe.whitelist()
+def get_previous_stage_batches(product, stage, source_product=None, exclude_doctype=None, exclude_name=None):
+    """Return server-calculated balances and actual costs for a product's prior-stage batches."""
+    stage = cint(stage)
+    if stage < 2:
+        frappe.throw(_("Previous-stage batches are only available from Stage 2 onward."))
+    if exclude_doctype and exclude_doctype not in ("Stage 2 Batch", "Stage 3 Batch", "Belt Batch"):
+        frappe.throw(_("Invalid production document type."))
+    if exclude_name and (not exclude_doctype or not frappe.db.exists(exclude_doctype, exclude_name)):
+        frappe.throw(_("Production document was not found."))
+    if not frappe.has_permission("Stage 1 Batch", "read") and not frappe.has_permission("Belt Batch", "read"):
+        raise frappe.PermissionError
+    return get_available_source_batches(
+        source_product or product,
+        stage - 1,
+        exclude_doctype=exclude_doctype,
+        exclude_name=exclude_name,
+    )
+
+
+@frappe.whitelist(methods=["POST"])
+def set_belt_batch_completion(name, is_completed):
+    """Complete or admin-reopen a Belt Batch using the server-side inventory workflow."""
+    doc = frappe.get_doc("Belt Batch", name)
+    doc.check_permission("write")
+    desired = cint(is_completed)
+    if desired == cint(doc.is_completed):
+        frappe.throw(_("Belt Batch is already in the requested completion state."))
+    if not desired:
+        require_admin()
+    doc.is_completed = desired
+    doc.save()
+    return {"name": doc.name, "is_completed": cint(doc.is_completed)}
 
 
 @frappe.whitelist()
@@ -3422,7 +3477,7 @@ def delete_user_and_sales_person(user):
     return {"message": f"User {user} and linked Sales Person deleted successfully"}
 
 @frappe.whitelist()
-def get_belt_production_report(from_date=None, to_date=None, product=None):
+def get_belt_production_report(from_date=None, to_date=None, product=None, stage=None):
     """
     Comprehensive Belt Production Report API:
     1. Date-wise Production
@@ -3447,6 +3502,15 @@ def get_belt_production_report(from_date=None, to_date=None, product=None):
         conditions.append("(product LIKE %(product)s OR product = %(product_exact)s)")
         params["product"] = f"%{product.strip()}%"
         params["product_exact"] = product.strip()
+    if stage and stage != "All":
+        s_val = str(stage).strip()
+        if s_val.isdigit():
+            conditions.append("(stage = %(stage_num)s OR process_step = %(stage_num)s)")
+            params["stage_num"] = cint(s_val)
+        else:
+            conditions.append("(current_process LIKE %(stage_str)s OR stage = %(stage_exact)s)")
+            params["stage_str"] = f"%{s_val}%"
+            params["stage_exact"] = s_val
 
     where_clause = " AND ".join(conditions)
 
@@ -4789,6 +4853,201 @@ def get_cnc_production_report(
 
 
 @frappe.whitelist()
+def get_external_grinding_data(
+    from_date=None,
+    to_date=None,
+    vendor=None,
+    product=None,
+    status=None,
+    search=None,
+):
+    """
+    Returns all External Grinding Log rows (Outward + Inward) with
+    summary KPIs and the list of active Outward entries for the Inward dialog.
+    Handles both pre-migration (no entry_type column) and post-migration states.
+    """
+    # Check if entry_type column exists in the table
+    col_check = frappe.db.sql("""
+        SELECT COUNT(*) FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'tabExternal Grinding Log'
+          AND COLUMN_NAME = 'entry_type'
+    """)
+    has_entry_type = bool(col_check and col_check[0][0])
+
+    # Build the extra columns based on schema availability
+    extra_cols = "entry_type, outward_entry, batch_no, received_qty," if has_entry_type else "NULL AS entry_type, NULL AS outward_entry, NULL AS batch_no, NULL AS received_qty,"
+
+    conditions = []
+    params = {}
+
+    if from_date:
+        conditions.append("(outward_date >= %(from_date)s OR inward_date >= %(from_date)s)")
+        params["from_date"] = from_date
+    if to_date:
+        conditions.append("(outward_date <= %(to_date)s OR inward_date <= %(to_date)s)")
+        params["to_date"] = to_date
+    if vendor and vendor != "All":
+        conditions.append("vendor = %(vendor)s")
+        params["vendor"] = vendor
+    if product and product != "All":
+        conditions.append("product = %(product)s")
+        params["product"] = product
+    if status and status != "All":
+        conditions.append("grinding_status = %(status)s")
+        params["status"] = status
+
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+    # Ordering: safe for both schema states
+    order_by = (
+        "CASE WHEN entry_type = 'Outward' OR entry_type IS NULL THEN outward_date ELSE inward_date END DESC, creation DESC"
+        if has_entry_type else
+        "outward_date DESC, creation DESC"
+    )
+
+    rows = frappe.db.sql(f"""
+        SELECT
+            name, {extra_cols}
+            job_reference, product, vendor,
+            challan_no, outward_date, sent_qty, uom,
+            inward_date, returned_qty,
+            accepted_qty, rejected_qty, pending_qty,
+            rejection_reason, grinding_status, remarks
+        FROM `tabExternal Grinding Log`
+        {where}
+        ORDER BY {order_by}
+    """, params, as_dict=True)
+
+    # Normalize: old rows without entry_type are Outward
+    for r in rows:
+        if not r.get("entry_type"):
+            r["entry_type"] = "Outward"
+
+    # --- Summary KPIs ---
+    if has_entry_type:
+        kpi = frappe.db.sql("""
+            SELECT
+                COALESCE(SUM(CASE WHEN (entry_type = 'Outward' OR entry_type IS NULL) THEN sent_qty ELSE 0 END), 0) AS total_outward,
+                COALESCE(SUM(CASE WHEN entry_type = 'Inward' THEN COALESCE(received_qty, returned_qty, 0) ELSE 0 END), 0) AS total_inward,
+                COALESCE(SUM(CASE WHEN entry_type = 'Inward' THEN COALESCE(accepted_qty, 0) ELSE 0 END), 0) AS total_accepted,
+                COALESCE(SUM(CASE WHEN entry_type = 'Inward' THEN COALESCE(rejected_qty, 0) ELSE 0 END), 0) AS total_rejected
+            FROM `tabExternal Grinding Log`
+            WHERE docstatus < 2
+        """, as_dict=True)
+    else:
+        # Pre-migration: all records are Outward style
+        kpi = frappe.db.sql("""
+            SELECT
+                COALESCE(SUM(sent_qty), 0) AS total_outward,
+                COALESCE(SUM(COALESCE(returned_qty, 0)), 0) AS total_inward,
+                COALESCE(SUM(COALESCE(accepted_qty, 0)), 0) AS total_accepted,
+                COALESCE(SUM(COALESCE(rejected_qty, 0)), 0) AS total_rejected
+            FROM `tabExternal Grinding Log`
+            WHERE docstatus < 2
+        """, as_dict=True)
+
+    tot_out = flt(kpi[0].total_outward) if kpi else 0.0
+    tot_in = flt(kpi[0].total_inward) if kpi else 0.0
+    tot_acc = flt(kpi[0].total_accepted) if kpi else 0.0
+    tot_rej = flt(kpi[0].total_rejected) if kpi else 0.0
+
+    # --- Active Outwards for Inward dialog ---
+    if has_entry_type:
+        active_outwards = frappe.db.sql("""
+            SELECT name, job_reference, product, vendor, sent_qty, uom, pending_qty, grinding_status
+            FROM `tabExternal Grinding Log`
+            WHERE (entry_type = 'Outward' OR entry_type IS NULL)
+              AND grinding_status IN ('Dispatched', 'Partially Received')
+              AND docstatus < 2
+            ORDER BY outward_date DESC
+        """, as_dict=True)
+    else:
+        active_outwards = frappe.db.sql("""
+            SELECT name, job_reference, product, vendor, sent_qty, uom, pending_qty, grinding_status
+            FROM `tabExternal Grinding Log`
+            WHERE grinding_status IN ('Dispatched', 'Partially Received')
+              AND docstatus < 2
+            ORDER BY outward_date DESC
+        """, as_dict=True)
+
+    # --- Unique vendors/products for filter dropdowns ---
+    vendors = list({r.vendor for r in rows if r.vendor})
+    products_list = list({r.product for r in rows if r.product})
+
+    return {
+        "rows": rows,
+        "summary": {
+            "total_outward": tot_out,
+            "total_inward": tot_in,
+            "total_accepted": tot_acc,
+            "total_rejected": tot_rej,
+            "total_pending": max(0.0, tot_out - tot_in),
+        },
+        "active_outwards": active_outwards,
+        "vendors": sorted(vendors),
+        "products": sorted(products_list),
+    }
+
+
+@frappe.whitelist()
+def get_outward_dispatch_details(outward_name):
+    """
+    Returns details of an Outward entry needed to populate an Inward dialog,
+    including previously received quantity and available remaining quantity.
+    """
+    if not outward_name or not frappe.db.exists("External Grinding Log", outward_name):
+        frappe.throw(_("Outward Entry {0} not found.").format(outward_name))
+
+    doc = frappe.db.get_value(
+        "External Grinding Log",
+        outward_name,
+        ["name", "job_reference", "product", "vendor", "uom", "sent_qty",
+         "batch_no", "process", "machine", "grinding_status"],
+        as_dict=True,
+    )
+    if not doc:
+        frappe.throw(_("Outward Entry {0} not found.").format(outward_name))
+
+    # Check if entry_type column exists
+    col_check = frappe.db.sql("""
+        SELECT COUNT(*) FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'tabExternal Grinding Log'
+          AND COLUMN_NAME = 'entry_type'
+    """)
+    has_entry_type = bool(col_check and col_check[0][0])
+
+    if has_entry_type:
+        prev = frappe.db.sql("""
+            SELECT COALESCE(SUM(COALESCE(received_qty, returned_qty, 0)), 0) AS total_received
+            FROM `tabExternal Grinding Log`
+            WHERE outward_entry = %s AND entry_type = 'Inward' AND docstatus < 2
+        """, (outward_name,), as_dict=True)
+    else:
+        prev = [{"total_received": 0}]
+
+    total_received = flt(prev[0].total_received) if prev else 0.0
+    sent = flt(doc.sent_qty)
+    available = max(0.0, sent - total_received)
+
+    return {
+        "name": doc.name,
+        "job_reference": doc.job_reference,
+        "product": doc.product,
+        "vendor": doc.vendor,
+        "uom": doc.uom,
+        "batch_no": doc.batch_no,
+        "process": doc.process,
+        "machine": doc.machine,
+        "sent_qty": sent,
+        "total_received": total_received,
+        "available_qty": available,
+        "grinding_status": doc.grinding_status,
+    }
+
+
+@frappe.whitelist()
 def get_external_grinding_report(
     from_date=None,
     to_date=None,
@@ -5000,6 +5259,72 @@ def get_pu_production_report(from_date=None, to_date=None, product=None):
                 }
                 for stage_no, _, _ in stages
             },
+        },
+    }
+
+
+@frappe.whitelist()
+def get_rejection_dashboard(from_date=None, to_date=None, department=None, employee=None,
+                           product=None, process=None, machine=None, shift=None, rejection_status=None):
+    """Filter centralized rejection records and return dashboard totals and group dimensions."""
+    if not frappe.has_permission("Rejection Entry", "read"):
+        raise frappe.PermissionError
+    filters = []
+    if from_date:
+        filters.append(["rejection_date", ">=", str(from_date)[:10]])
+    if to_date:
+        filters.append(["rejection_date", "<=", str(to_date)[:10]])
+    base_rows = [row for row in frappe.get_all("Rejection Entry", filters=filters, fields=["*"], order_by="rejection_date desc, name desc", limit_page_length=10000) if flt(row.get("rejected_qty")) > 0]
+
+    employees = {row.employee: frappe.db.get_value("Employee", row.employee, "employee_name") or row.employee for row in base_rows if row.employee}
+    reasons = {row.rejection_reason: frappe.db.get_value("Rejection Reason", row.rejection_reason, "reason_name") or row.rejection_reason for row in base_rows if row.rejection_reason}
+    machines = {row.machine: frappe.db.get_value("CNC Machine", row.machine, "machine_name") or row.machine for row in base_rows if row.machine}
+    rows = []
+    for row in base_rows:
+        row = dict(row)
+        row["employee_name"] = employees.get(row.get("employee"), "")
+        row["rejection_reason_name"] = reasons.get(row.get("rejection_reason"), "")
+        row["machine_name"] = machines.get(row.get("machine"), "")
+        if department and row.get("department") != department:
+            continue
+        if employee and row.get("employee") != employee:
+            continue
+        if product and row.get("product") != product:
+            continue
+        if process and row.get("process") != process:
+            continue
+        if machine and row.get("machine") != machine:
+            continue
+        if shift and row.get("shift") != shift:
+            continue
+        if rejection_status and row.get("rejection_status") != rejection_status:
+            continue
+        rows.append(row)
+
+    summary_by_uom = {}
+    for row in rows:
+        uom = row.get("uom") or "Unspecified"
+        total = summary_by_uom.setdefault(uom, {"uom": uom, "input_qty": 0, "good_qty": 0, "rejected_qty": 0, "pending_qty": 0})
+        total["input_qty"] += flt(row.get("input_qty"))
+        total["good_qty"] += flt(row.get("good_qty"))
+        total["rejected_qty"] += flt(row.get("rejected_qty"))
+        total["pending_qty"] += flt(row.get("pending_qty"))
+    for total in summary_by_uom.values():
+        total["rejection_rate"] = total["rejected_qty"] / total["input_qty"] * 100 if total["input_qty"] else 0
+
+    return {
+        "rows": rows,
+        "all_rows": base_rows,
+        "summary": {
+            "entry_count": len(rows),
+            "by_uom": sorted(summary_by_uom.values(), key=lambda item: item["uom"]),
+        },
+        "filters": {
+            "departments": sorted({row.get("department") for row in base_rows if row.get("department")}),
+            "products": sorted({row.get("product") for row in base_rows if row.get("product")}),
+            "processes": sorted({row.get("process") for row in base_rows if row.get("process")}),
+            "machines": sorted({row.get("machine") for row in base_rows if row.get("machine")}),
+            "machine_names": machines,
         },
     }
 

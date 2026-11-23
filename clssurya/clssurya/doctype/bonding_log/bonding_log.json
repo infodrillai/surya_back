@@ -94,6 +94,64 @@
    "fieldname": "remarks",
    "fieldtype": "Small Text",
    "label": "Remarks"
+  },
+  {
+   "fieldname": "employee",
+   "fieldtype": "Link",
+   "label": "Employee / Operator",
+   "options": "Employee",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "rejection_reason",
+   "fieldtype": "Link",
+   "label": "Rejection Reason",
+   "options": "Rejection Reason"
+  },
+  {
+   "fieldname": "rejection_status",
+   "fieldtype": "Select",
+   "label": "Rejection Status",
+   "options": "Pending Inspection\nRework\nScrap\nInspection Hold\nApproved Rejection",
+   "default": "Pending Inspection"
+  },
+  {
+   "fieldname": "input_qty",
+   "fieldtype": "Float",
+   "label": "Input Quantity",
+   "precision": "9"
+  },
+  {
+   "fieldname": "good_qty",
+   "fieldtype": "Float",
+   "label": "Good Quantity",
+   "precision": "9"
+  },
+  {
+   "fieldname": "rejected_qty",
+   "fieldtype": "Float",
+   "label": "Rejected Quantity",
+   "precision": "9",
+   "default": "0",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "pending_qty",
+   "fieldtype": "Float",
+   "label": "Pending Quantity",
+   "precision": "9"
+  },
+  {
+   "fieldname": "uom",
+   "fieldtype": "Link",
+   "label": "Unit of Measurement",
+   "options": "UOM"
+  },
+  {
+   "fieldname": "operation",
+   "fieldtype": "Link",
+   "label": "Process / Operation",
+   "options": "Process"
   }
  ],
  "field_order": [
@@ -109,7 +167,16 @@
   "operator",
   "shift",
   "target_roll_id",
-  "remarks"
+  "remarks",
+  "employee",
+  "rejection_reason",
+  "rejection_status",
+  "input_qty",
+  "good_qty",
+  "rejected_qty",
+  "pending_qty",
+  "uom",
+  "operation"
  ],
  "permissions": [
   {

@@ -5,6 +5,7 @@ from frappe.utils import cint, flt, time_diff_in_seconds
 from clssurya.utils.base import CompletableDocument
 from clssurya.utils.costing import stage1_wastage, stage_totals
 from clssurya.utils.stock_service import inventory_price
+from clssurya.utils.batch_tracking import source_batch_unit_cost, validate_source_batch_consumption
 
 PREV_STAGE = {2: "Stage 1", 3: "Stage 2"}
 OUT_STAGE = {1: "Stage 1", 2: "Stage 2", 3: "Stage 3"}
@@ -19,32 +20,124 @@ STAGE_DISPLAY = {
 
 
 def stage1_carry_cost(product, bom=None):
+    if not product:
+        return 0.0
+
+    # 1. Check Inventory at Stage 1
     valuation = frappe.db.get_value(
         "Inventory", {"product": product, "stage": "Stage 1"}, ["stock", "unit_price"], as_dict=True
     )
-    if valuation and (flt(valuation.stock) > 0 or flt(valuation.unit_price) > 0):
+    if valuation and flt(valuation.unit_price) > 0:
         return flt(valuation.unit_price)
 
+    # 2. Check completed Stage 1 Batch
     batch_cost = frappe.db.get_value(
         "Stage 1 Batch",
         {"product": product, "is_completed": 1},
         "unit_cost",
-        order_by="completed_on desc, name desc",
+        order_by="completed_on desc, modified desc, name desc",
     )
-    if batch_cost is not None:
+    if batch_cost is not None and flt(batch_cost) > 0:
         return flt(batch_cost)
 
-    bom = bom if bom is not None else frappe.get_doc("BOM", product)
-    return sum(
-        flt(row.per_unit_utilization) * inventory_price(row.product, "Raw")
-        for row in bom.get("stage1_items") or []
+    # 3. Check any latest Stage 1 Batch (even if draft)
+    latest_s1 = frappe.db.get_value(
+        "Stage 1 Batch",
+        {"product": product},
+        "unit_cost",
+        order_by="modified desc, name desc",
     )
+    if latest_s1 is not None and flt(latest_s1) > 0:
+        return flt(latest_s1)
+
+    # 4. Check Stock Ledger Entry for this product at Stage 1
+    try:
+        sle = frappe.db.sql("""
+            SELECT unit_price FROM `tabStock Ledger Entry`
+            WHERE product = %s AND stage = 'Stage 1' AND unit_price > 0
+            ORDER BY posting_datetime DESC, creation DESC LIMIT 1
+        """, (product,))
+        if sle and flt(sle[0][0]) > 0:
+            return flt(sle[0][0])
+    except Exception:
+        pass
+
+    # 5. Check prior Stage 2 Batch where this carrier product was used
+    try:
+        prev_s2 = frappe.db.sql("""
+            SELECT unit_price FROM `tabStage 2 Batch Item`
+            WHERE product = %s AND unit_price > 0
+            ORDER BY creation DESC LIMIT 1
+        """, (product,))
+        if prev_s2 and flt(prev_s2[0][0]) > 0:
+            return flt(prev_s2[0][0])
+    except Exception:
+        pass
+
+    # 6. Check BOM Stage 1 recipe calculation
+    try:
+        bom = bom if bom is not None else (frappe.get_doc("BOM", product) if frappe.db.exists("BOM", product) else None)
+        if bom and bom.get("stage1_items"):
+            cost = 0.0
+            for row in bom.get("stage1_items"):
+                p = inventory_price(row.product, "Raw")
+                if not p:
+                    pe_row = frappe.db.sql("""
+                        SELECT rate FROM `tabPurchase Entry Item`
+                        WHERE product = %s AND rate > 0
+                        ORDER BY creation DESC LIMIT 1
+                    """, (row.product,))
+                    p = flt(pe_row[0][0]) if pe_row else 0.0
+                if not p:
+                    p = flt(frappe.db.get_value("Product", row.product, "last_purchase_rate")) or flt(frappe.db.get_value("Product", row.product, "valuation_rate")) or 0.0
+                cost += flt(row.per_unit_utilization) * p
+            if cost > 0:
+                return cost
+    except Exception:
+        pass
+
+    # 7. Check direct Purchase Entry Item rate (if carrier was purchased)
+    try:
+        pe = frappe.db.sql("""
+            SELECT rate FROM `tabPurchase Entry Item`
+            WHERE product = %s AND rate > 0
+            ORDER BY creation DESC LIMIT 1
+        """, (product,))
+        if pe and flt(pe[0][0]) > 0:
+            return flt(pe[0][0])
+    except Exception:
+        pass
+
+    # 8. Check product master price / cost
+    prod = frappe.db.get_value("Product", product, ["production_cost", "valuation_rate", "standard_rate", "last_purchase_rate"], as_dict=True)
+    if prod:
+        return flt(prod.production_cost) or flt(prod.valuation_rate) or flt(prod.standard_rate) or flt(prod.last_purchase_rate) or 0.0
+
+    return 0.0
 
 
 class StageBatch(CompletableDocument):
     """Shared logic for Stage 1/2/3 batches (PU and Belt flows)."""
 
     STAGE = 1
+
+    def after_complete(self):
+        # Create rejection history in the same completion transaction as stock posting.
+        from clssurya.utils.rejections import sync_rejection_entry
+
+        sync_rejection_entry(self)
+
+    def after_reopen(self):
+        # Keep the generated document for audit, but remove its active quantity.
+        from clssurya.utils.rejections import deactivate_rejection_entry
+
+        deactivate_rejection_entry(self)
+
+    def before_complete(self):
+        validate_source_batch_consumption(self, lock=True)
+
+    def before_reopen(self):
+        validate_source_batch_consumption(self, lock=True)
 
     def _is_belt(self):
         if not getattr(self, "product", None):
@@ -73,7 +166,10 @@ class StageBatch(CompletableDocument):
 
             # Determine price based on source_stage or standard flow
             source_stage = r.get("source_stage")
-            if self.STAGE == 2 and carried_in and not is_belt and source_stage in (None, "", "Stage 1"):
+            batch_price = source_batch_unit_cost(r) if r.get("source_batch") else None
+            if batch_price is not None:
+                r.unit_price = batch_price
+            elif self.STAGE == 2 and carried_in and not is_belt and source_stage in (None, "", "Stage 1"):
                 r.unit_price = stage1_carry_cost(r.product)
             elif source_stage:
                 r.unit_price = inventory_price(r.product, source_stage)
@@ -104,7 +200,7 @@ class StageBatch(CompletableDocument):
                 ratio_val = flt(r.ratio) or 1.0
                 r.per_unit_utilization = s_val / ratio_val
                 r.total_utilization = r.per_unit_utilization * qty
-                if not r.actual_utilization or flt(r.actual_utilization) == 0:
+                if not r.get("source_batch") and (not r.actual_utilization or flt(r.actual_utilization) == 0):
                     r.actual_utilization = r.total_utilization
             else:
                 r.total_utilization = flt(r.per_unit_utilization) * qty
@@ -118,7 +214,7 @@ class StageBatch(CompletableDocument):
 
             used += actual_qty
 
-            if carried_in:
+            if carried_in or r.get("source_batch"):
                 carried += r.actual_amount
                 input_material_qty += actual_qty
             else:
@@ -195,8 +291,9 @@ class StageBatch(CompletableDocument):
         rows = [r for r in self.get("items") if cint(r.get("is_carried_in"))]
         if self.STAGE == 3 and not is_belt:
             # PU Stage 3 only has the carried row
-            self.set("items", rows[:1])
-            rows = self.get("items")
+            if not any(r.get("source_batch") for r in rows):
+                self.set("items", rows[:1])
+                rows = self.get("items")
 
         if not rows and self.product:
             carried_row = {"is_carried_in": 1, "product": self.product, "per_unit_utilization": 1, "actual_utilization": qty}
@@ -231,6 +328,7 @@ class StageBatch(CompletableDocument):
                 frappe.throw(_("Output weight is more than the material used (wastage is negative)."))
         if flt(self.get("rejection_per_piece", 0)) < 0:
             frappe.throw(_("Rejection per piece cannot be negative."))
+        validate_source_batch_consumption(self)
 
     def stock_entries(self):
         entries = []

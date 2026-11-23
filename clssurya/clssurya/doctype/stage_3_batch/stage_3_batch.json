@@ -162,7 +162,8 @@
    "fieldtype": "Float",
    "label": "Rejected / Scrap Qty",
    "precision": "9",
-   "read_only": 1
+   "read_only": 1,
+   "default": "0"
   },
   {
    "fieldname": "remaining_qty",
@@ -206,6 +207,26 @@
    "fieldtype": "Data",
    "label": "Production Code",
    "in_list_view": 1
+  },
+  {
+   "fieldname": "employee",
+   "fieldtype": "Link",
+   "label": "Employee / Operator",
+   "options": "Employee",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "rejection_reason",
+   "fieldtype": "Link",
+   "label": "Rejection Reason",
+   "options": "Rejection Reason"
+  },
+  {
+   "fieldname": "rejection_status",
+   "fieldtype": "Select",
+   "label": "Rejection Status",
+   "options": "Pending Inspection\nRework\nScrap\nInspection Hold\nApproved Rejection",
+   "default": "Pending Inspection"
   }
  ],
  "field_order": [
@@ -237,7 +258,10 @@
   "duration_mins",
   "remarks",
   "status",
-  "production_code"
+  "production_code",
+  "employee",
+  "rejection_reason",
+  "rejection_status"
  ],
  "permissions": [
   {

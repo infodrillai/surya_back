@@ -1,0 +1,219 @@
+{
+ "doctype": "DocType",
+ "name": "Rejection Entry",
+ "module": "Clssurya",
+ "engine": "InnoDB",
+ "custom": 0,
+ "istable": 0,
+ "track_changes": 1,
+ "autoname": "format:REJ-{#####}",
+ "sort_field": "rejection_date",
+ "sort_order": "DESC",
+ "title_field": "name",
+ "fields": [
+  {
+   "fieldname": "rejection_date",
+   "fieldtype": "Date",
+   "label": "Rejection Date",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "department",
+   "fieldtype": "Data",
+   "label": "Department",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "production_type",
+   "fieldtype": "Select",
+   "label": "Production Type",
+   "options": "Belt Production\nPU Production\nBonding\nRoll Formation\nCoating\nCNC Parting\nCNC Operation\nExternal Grinding",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "production_reference",
+   "fieldtype": "Data",
+   "label": "Production Order / Job Reference",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "product",
+   "fieldtype": "Link",
+   "label": "Product",
+   "options": "Product"
+  },
+  {
+   "fieldname": "batch_id",
+   "fieldtype": "Data",
+   "label": "Batch ID"
+  },
+  {
+   "fieldname": "process",
+   "fieldtype": "Link",
+   "label": "Process / Operation",
+   "options": "Process"
+  },
+  {
+   "fieldname": "machine",
+   "fieldtype": "Link",
+   "label": "Machine",
+   "options": "CNC Machine"
+  },
+  {
+   "fieldname": "employee",
+   "fieldtype": "Link",
+   "label": "Employee / Operator",
+   "options": "Employee"
+  },
+  {
+   "fieldname": "shift",
+   "fieldtype": "Select",
+   "label": "Shift",
+   "options": "Morning\nEvening\nNight"
+  },
+  {
+   "fieldname": "input_qty",
+   "fieldtype": "Float",
+   "label": "Input Quantity",
+   "precision": "9"
+  },
+  {
+   "fieldname": "good_qty",
+   "fieldtype": "Float",
+   "label": "Good Quantity",
+   "precision": "9"
+  },
+  {
+   "fieldname": "rejected_qty",
+   "fieldtype": "Float",
+   "label": "Rejected Quantity",
+   "precision": "9",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "pending_qty",
+   "fieldtype": "Float",
+   "label": "Pending Quantity",
+   "precision": "9"
+  },
+  {
+   "fieldname": "uom",
+   "fieldtype": "Link",
+   "label": "Unit of Measurement",
+   "options": "UOM"
+  },
+  {
+   "fieldname": "rejection_reason",
+   "fieldtype": "Link",
+   "label": "Rejection Reason",
+   "options": "Rejection Reason"
+  },
+  {
+   "fieldname": "rejection_status",
+   "fieldtype": "Select",
+   "label": "Rejection Status",
+   "options": "Pending Inspection\nRework\nScrap\nInspection Hold\nApproved Rejection",
+   "default": "Pending Inspection",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  },
+  {
+   "fieldname": "attachment",
+   "fieldtype": "Attach Image",
+   "label": "Attachment / Image"
+  },
+  {
+   "fieldname": "source_doctype",
+   "fieldtype": "Data",
+   "label": "Source DocType",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "source_name",
+   "fieldtype": "Data",
+   "label": "Source Document",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "source_key",
+   "fieldtype": "Data",
+   "label": "Source Key",
+   "unique": 1,
+   "read_only": 1,
+   "no_copy": 1
+  }
+ ],
+ "field_order": [
+  "rejection_date",
+  "department",
+  "production_type",
+  "production_reference",
+  "product",
+  "batch_id",
+  "process",
+  "machine",
+  "employee",
+  "shift",
+  "input_qty",
+  "good_qty",
+  "rejected_qty",
+  "pending_qty",
+  "uom",
+  "rejection_reason",
+  "rejection_status",
+  "remarks",
+  "attachment",
+  "source_doctype",
+  "source_name",
+  "source_key"
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  },
+  {
+   "role": "CS Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  },
+  {
+   "role": "CS Production",
+   "read": 1,
+   "write": 1,
+   "create": 1
+  },
+  {
+   "role": "CS Store",
+   "read": 1
+  },
+  {
+   "role": "PU Operator",
+   "read": 1,
+   "write": 1,
+   "create": 1
+  },
+  {
+   "role": "Belt Operator",
+   "read": 1,
+   "write": 1,
+   "create": 1
+  }
+ ]
+}

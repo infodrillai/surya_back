@@ -129,7 +129,8 @@
    "fieldtype": "Float",
    "label": "Rejected Quantity",
    "precision": "2",
-   "in_list_view": 1
+   "in_list_view": 1,
+   "default": "0"
   },
   {
    "fieldname": "pending_qty",
@@ -139,20 +140,28 @@
   },
   {
    "fieldname": "rejection_reason",
-   "fieldtype": "Data",
-   "label": "Rejection Reason"
+   "fieldtype": "Link",
+   "label": "Rejection Reason",
+   "options": "Rejection Reason"
   },
   {
    "fieldname": "rejection_status",
    "fieldtype": "Select",
    "label": "Rejection Status",
-   "options": "Scrap\nRework\nInspection Hold",
-   "default": "Scrap"
+   "options": "Pending Inspection\nRework\nScrap\nInspection Hold\nApproved Rejection",
+   "default": "Pending Inspection"
   },
   {
    "fieldname": "remarks",
    "fieldtype": "Small Text",
    "label": "Remarks"
+  },
+  {
+   "fieldname": "employee",
+   "fieldtype": "Link",
+   "label": "Employee / Operator",
+   "options": "Employee",
+   "in_list_view": 1
   }
  ],
  "field_order": [
@@ -177,7 +186,8 @@
   "pending_qty",
   "rejection_reason",
   "rejection_status",
-  "remarks"
+  "remarks",
+  "employee"
  ],
  "permissions": [
   {

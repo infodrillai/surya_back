@@ -1,0 +1,116 @@
+{
+ "doctype": "DocType",
+ "name": "Employee",
+ "module": "Clssurya",
+ "engine": "InnoDB",
+ "custom": 0,
+ "istable": 0,
+ "track_changes": 1,
+ "autoname": "EMP-.######",
+ "sort_field": "employee_name",
+ "sort_order": "ASC",
+ "title_field": "employee_name",
+ "search_fields": "employee_name,department,mobile_no,email",
+ "fields": [
+  {
+   "fieldname": "employee_name",
+   "fieldtype": "Data",
+   "label": "Employee Name",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "department",
+   "fieldtype": "Data",
+   "label": "Department",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "designation",
+   "fieldtype": "Data",
+   "label": "Designation",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "mobile_no",
+   "fieldtype": "Data",
+   "label": "Mobile Number",
+   "options": "Phone"
+  },
+  {
+   "fieldname": "email",
+   "fieldtype": "Data",
+   "label": "Email",
+   "options": "Email"
+  },
+  {
+   "fieldname": "joining_date",
+   "fieldtype": "Date",
+   "label": "Joining Date"
+  },
+  {
+   "fieldname": "employee_type",
+   "fieldtype": "Select",
+   "label": "Employee Type",
+   "options": "Permanent\nContract\nTemporary\nOther"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Active\nInactive",
+   "default": "Active",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  }
+ ],
+ "field_order": [
+  "employee_name",
+  "department",
+  "designation",
+  "mobile_no",
+  "email",
+  "joining_date",
+  "employee_type",
+  "status",
+  "remarks"
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1
+  },
+  {
+   "role": "CS Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1
+  },
+  {
+   "role": "CS Production",
+   "read": 1,
+   "write": 1,
+   "create": 1
+  },
+  {
+   "role": "CS Store",
+   "read": 1
+  },
+  {
+   "role": "PU Operator",
+   "read": 1
+  },
+  {
+   "role": "Belt Operator",
+   "read": 1
+  }
+ ]
+}

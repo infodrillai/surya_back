@@ -92,6 +92,40 @@
    "default": "Raw"
   },
   {
+   "fieldname": "source_batch",
+   "fieldtype": "Data",
+   "label": "Source Batch",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "source_batch_doctype",
+   "fieldtype": "Data",
+   "label": "Source Batch Type",
+   "read_only": 1
+  },
+  {
+   "fieldname": "batch_available_qty",
+   "fieldtype": "Float",
+   "label": "Batch Available Qty",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "batch_consumed_qty",
+   "fieldtype": "Float",
+   "label": "Batch Consumed Qty",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "batch_remaining_qty",
+   "fieldtype": "Float",
+   "label": "Batch Remaining Qty",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
    "fieldname": "calculation_type",
    "fieldtype": "Select",
    "label": "Calculation Type",
@@ -112,6 +146,11 @@
   "actual_amount",
   "ratio",
   "source_stage",
+  "source_batch",
+  "source_batch_doctype",
+  "batch_available_qty",
+  "batch_consumed_qty",
+  "batch_remaining_qty",
   "calculation_type"
  ],
  "permissions": []

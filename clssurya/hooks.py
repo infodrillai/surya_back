@@ -12,6 +12,9 @@ after_install = ["clssurya.patches.v1_0.load_initial_masters_and_boms.execute"]
 after_migrate = [
     "clssurya.install.ensure_roles",
     "clssurya.patches.v1_0.load_initial_masters_and_boms.execute",
+    "clssurya.utils.rejections.seed_rejection_reasons",
+    "clssurya.utils.rejections.ensure_belt_batch_fields",
+    "clssurya.utils.batch_tracking.ensure_belt_batch_tracking_fields",
 ]
 
 # Permission Query Conditions for Sales Person row-level isolation
@@ -29,6 +32,23 @@ doc_events = {
         "on_trash": "clssurya.utils.versions.bump",
     }
     for dt in MASTERS
+}
+
+# Central rejection records stay linked to their production transaction and are
+# upserted after each save, so retries and edits never create duplicate rows.
+for _dt in ("Stage 1 Batch", "Stage 2 Batch", "Stage 3 Batch", "CNC Machine Log",
+            "Bonding Log", "Coating Log", "External Grinding Log"):
+    doc_events.setdefault(_dt, {})["on_update"] = "clssurya.utils.rejections.sync_rejection_entry"
+    doc_events[_dt]["after_insert"] = "clssurya.utils.rejections.sync_rejection_entry"
+    doc_events[_dt]["before_save"] = "clssurya.utils.rejections.sync_legacy_operator"
+    doc_events[_dt]["validate"] = "clssurya.utils.rejections.validate_active_references"
+    doc_events[_dt]["on_trash"] = "clssurya.utils.rejections.clear_rejection_entry"
+doc_events["Belt Batch"] = {
+    "before_save": "clssurya.utils.rejections.sync_legacy_operator",
+    "validate": "clssurya.utils.belt_batch.validate",
+    "after_insert": "clssurya.utils.rejections.sync_rejection_entry",
+    "on_update": "clssurya.utils.belt_batch.on_update",
+    "on_trash": "clssurya.utils.belt_batch.on_trash",
 }
 
 # Attach Sales Person auto-assignment and validation hooks
