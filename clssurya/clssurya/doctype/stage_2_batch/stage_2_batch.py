@@ -17,7 +17,7 @@ class Stage2Batch(StageBatch):
         for entry in self.stock_entries():
             frappe.db.set_value(
                 "Stock Ledger Entry",
-                {"voucher_no": self.name, "product": entry["product"]},
+                {"reference_doctype": self.doctype, "reference_name": self.name, "product": entry["product"]},
                 "unit_price",
                 original_price,
             )

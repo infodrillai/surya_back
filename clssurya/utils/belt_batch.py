@@ -154,3 +154,9 @@ def on_trash(doc, method=None):
     from clssurya.utils.rejections import clear_rejection_entry
 
     clear_rejection_entry(doc)
+
+
+def autoname(doc, method=None):
+    from clssurya.utils.naming import belt_batch_autoname
+
+    belt_batch_autoname(doc, method)

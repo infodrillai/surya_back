@@ -296,5 +296,5 @@
    "create": 1
   }
  ],
- "autoname": "format:S3B-{#####}"
+ "autoname": "S3-PU-CNC-.YY.-.#####"
 }

@@ -51,6 +51,10 @@ class ExternalGrindingLog(Document):
             self.uom = outward.uom or "PCS"
         if not self.machine and outward.machine:
             self.machine = outward.machine
+        if not self.employee and outward.employee:
+            self.employee = outward.employee
+        if not self.shift and outward.shift:
+            self.shift = outward.shift
         if not self.process and outward.process:
             self.process = outward.process
         if not self.batch_no and outward.batch_no:

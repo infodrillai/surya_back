@@ -6,7 +6,7 @@
  "custom": 0,
  "istable": 0,
  "track_changes": 1,
- "autoname": "EMP-.######",
+ "autoname": "EMP-.#####",
  "sort_field": "employee_name",
  "sort_order": "ASC",
  "title_field": "employee_name",

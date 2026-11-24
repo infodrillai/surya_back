@@ -67,7 +67,7 @@ def create_belt_batch_doctype():
             "module": "Clssurya",
             "custom": 1,
             "is_submittable": 0,
-            "autoname": "format:BB-{stage}-{YYYY}-{MM}-{#####}",
+            "autoname": "Prompt",
             "fields": [
                 {"fieldname": "stage", "label": "Stage", "fieldtype": "Int", "reqd": 1, "in_list_view": 1},
                 {"fieldname": "process_step", "label": "Process Step", "fieldtype": "Int"},

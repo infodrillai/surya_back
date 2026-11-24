@@ -121,6 +121,11 @@ class StageBatch(CompletableDocument):
 
     STAGE = 1
 
+    def autoname(self):
+        from clssurya.utils.naming import pu_batch_autoname
+
+        pu_batch_autoname(self)
+
     def after_complete(self):
         # Create rejection history in the same completion transaction as stock posting.
         from clssurya.utils.rejections import sync_rejection_entry

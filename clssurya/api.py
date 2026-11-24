@@ -1837,6 +1837,7 @@ def get_monthly_production_report(
     # Exclude cancelled batches (docstatus != 2, status != 'Cancelled').
     # Completed batches: is_completed == 1 or status == 'Completed'.
     stage_batches = []
+    employee_name_cache = {}
     for stg_num, stg_label in [(1, "Stage 1 – Insert Making"), (2, "Stage 2 – PU & Casting"), (3, "Stage 3 – CNC")]:
         dt = f"Stage {stg_num} Batch"
         filters = {
@@ -1858,7 +1859,7 @@ def get_monthly_production_report(
                     "name", "product", "quantity", "posting_date", "status",
                     "is_completed", "added_cost", "carried_cost", "batch_total",
                     "unit_cost", "rejection_percent", "rejection_amount", "rejected_qty",
-                    "accepted_qty", "production_code", "remarks"
+                    "accepted_qty", "production_code", "remarks", "employee", "operator"
                 ],
                 order_by="posting_date asc",
                 ignore_permissions=True,
@@ -1890,7 +1891,7 @@ def get_monthly_production_report(
                 fields=[
                     "name", "product", "quantity", "posting_date", "process_step",
                     "stage", "is_completed", "unit_cost", "batch_total",
-                    "remarks", "creation"
+                    "remarks", "creation", "employee", "operator"
                 ],
                 order_by="posting_date asc",
                 ignore_permissions=True,
@@ -2120,6 +2121,16 @@ def get_monthly_production_report(
             added = flt(b.get("added_cost") or 0)
 
             stg = b["stage_num"]
+            employee_id = b.get("employee")
+            if employee_id and employee_id not in employee_name_cache:
+                employee_name_cache[employee_id] = frappe.db.get_value("Employee", employee_id, "employee_name")
+            employee_name = employee_name_cache.get(employee_id) if employee_id else None
+            legacy_operator = b.get("operator") or ""
+            if not employee_name and str(legacy_operator).startswith("EMP-"):
+                if legacy_operator not in employee_name_cache:
+                    employee_name_cache[legacy_operator] = frappe.db.get_value("Employee", legacy_operator, "employee_name")
+                employee_name = employee_name_cache.get(legacy_operator)
+            operator_name = employee_name or ("" if str(legacy_operator).startswith("EMP-") else legacy_operator)
             if stg == 1:
                 stage1_qty += qty
                 net_cost = b_total if b_total > 0 else added
@@ -2143,6 +2154,7 @@ def get_monthly_production_report(
             total_net_cost += net_cost
 
             batch_details.append({
+                "stage_num": stg,
                 "production_date": raw_date,
                 "batch_no": b.get("name") or "",
                 "product_code": p_code,
@@ -2152,6 +2164,8 @@ def get_monthly_production_report(
                 "produced_qty": qty,
                 "rejected_qty": rej_amt,
                 "batch_status": b.get("status") or "Completed",
+                "employee": employee_id or "",
+                "operator": operator_name,
                 "production_cost": b_total,
                 "unit_cost": flt(b.get("unit_cost") or 0),
             })
@@ -4912,7 +4926,7 @@ def get_external_grinding_data(
             job_reference, product, vendor,
             challan_no, outward_date, sent_qty, uom,
             inward_date, returned_qty,
-            accepted_qty, rejected_qty, pending_qty,
+            accepted_qty, rejected_qty, pending_qty, employee,
             rejection_reason, grinding_status, remarks
         FROM `tabExternal Grinding Log`
         {where}
@@ -4923,6 +4937,7 @@ def get_external_grinding_data(
     for r in rows:
         if not r.get("entry_type"):
             r["entry_type"] = "Outward"
+        r["employee_name"] = frappe.db.get_value("Employee", r.employee, "employee_name") if r.get("employee") else ""
 
     # --- Summary KPIs ---
     if has_entry_type:
@@ -5003,7 +5018,7 @@ def get_outward_dispatch_details(outward_name):
         "External Grinding Log",
         outward_name,
         ["name", "job_reference", "product", "vendor", "uom", "sent_qty",
-         "batch_no", "process", "machine", "grinding_status"],
+         "batch_no", "process", "machine", "employee", "shift", "grinding_status"],
         as_dict=True,
     )
     if not doc:
@@ -5030,6 +5045,7 @@ def get_outward_dispatch_details(outward_name):
     total_received = flt(prev[0].total_received) if prev else 0.0
     sent = flt(doc.sent_qty)
     available = max(0.0, sent - total_received)
+    employee_name = frappe.db.get_value("Employee", doc.employee, "employee_name") if doc.employee else ""
 
     return {
         "name": doc.name,
@@ -5040,6 +5056,9 @@ def get_outward_dispatch_details(outward_name):
         "batch_no": doc.batch_no,
         "process": doc.process,
         "machine": doc.machine,
+        "employee": doc.employee,
+        "employee_name": employee_name,
+        "shift": doc.shift,
         "sent_qty": sent,
         "total_received": total_received,
         "available_qty": available,

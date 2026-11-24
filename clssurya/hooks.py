@@ -14,6 +14,7 @@ after_migrate = [
     "clssurya.patches.v1_0.load_initial_masters_and_boms.execute",
     "clssurya.utils.rejections.seed_rejection_reasons",
     "clssurya.utils.rejections.ensure_belt_batch_fields",
+    "clssurya.clssurya.doctype.employee.employee.sync_employee_naming_series",
     "clssurya.utils.batch_tracking.ensure_belt_batch_tracking_fields",
 ]
 
@@ -43,7 +44,10 @@ for _dt in ("Stage 1 Batch", "Stage 2 Batch", "Stage 3 Batch", "CNC Machine Log"
     doc_events[_dt]["before_save"] = "clssurya.utils.rejections.sync_legacy_operator"
     doc_events[_dt]["validate"] = "clssurya.utils.rejections.validate_active_references"
     doc_events[_dt]["on_trash"] = "clssurya.utils.rejections.clear_rejection_entry"
+for _dt in ("Stage 1 Batch", "Stage 2 Batch", "Stage 3 Batch"):
+    doc_events[_dt]["autoname"] = "clssurya.utils.naming.pu_batch_autoname"
 doc_events["Belt Batch"] = {
+    "autoname": "clssurya.utils.naming.belt_batch_autoname",
     "before_save": "clssurya.utils.rejections.sync_legacy_operator",
     "validate": "clssurya.utils.belt_batch.validate",
     "after_insert": "clssurya.utils.rejections.sync_rejection_entry",
